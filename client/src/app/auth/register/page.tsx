@@ -41,11 +41,21 @@ export default function RegisterPage() {
       router.push(
         "/auth/login?message=Registration successful! You can now sign in."
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Registration error:", err);
-      setError(
-        err.response?.data?.error || "Registration failed. Please try again."
-      );
+      const errorMessage =
+        err &&
+        typeof err === "object" &&
+        "response" in err &&
+        err.response &&
+        typeof err.response === "object" &&
+        "data" in err.response &&
+        err.response.data &&
+        typeof err.response.data === "object" &&
+        "error" in err.response.data
+          ? String(err.response.data.error)
+          : "Registration failed. Please try again.";
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }

@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ayushsarode/DriftBox/models"
-	"github.com/ayushsarode/DriftBox/utils"
+	"github.com/ayushsarode/VaultDocs/models"
+	"github.com/ayushsarode/VaultDocs/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -139,6 +139,31 @@ func GetFolders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"folders": folders})
 }
 
+// GetAllFolders returns all folders for the authenticated user (for hierarchy building)
+func GetAllFolders(c *gin.Context) {
+	userIDInterface, _ := c.Get("userID")
+	userIDString := userIDInterface.(string)
+	userID, _ := primitive.ObjectIDFromHex(userIDString)
+
+	filter := bson.M{"user_id": userID}
+
+	collection := utils.GetCollection("folders")
+	cursor, err := collection.Find(c, filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not retrieve folders"})
+		return
+	}
+	defer cursor.Close(c)
+
+	var folders []models.Folder
+	if err = cursor.All(c, &folders); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not decode folders"})
+		return
+	}
+
+	c.JSON(http.StatusOK, folders)
+}
+
 // DeleteFolder deletes a folder and all its contents
 func DeleteFolder(c *gin.Context) {
 	folderID := c.Param("id")
@@ -151,7 +176,6 @@ func DeleteFolder(c *gin.Context) {
 	userIDInterface, _ := c.Get("userID")
 	userIDString := userIDInterface.(string)
 	userID, _ := primitive.ObjectIDFromHex(userIDString)
-
 
 	// get folders
 	collection := utils.GetCollection("folders")

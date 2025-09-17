@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
-
-	"github.com/ayushsarode/DriftBox/models"
-	"github.com/ayushsarode/DriftBox/utils"
+	"time"
+	"github.com/ayushsarode/VaultDocs/models"
+	"github.com/ayushsarode/VaultDocs/utils"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
-)
-
+)         
+          
 func Register(c *gin.Context) {
 	var user models.User
 
@@ -32,6 +33,8 @@ func Register(c *gin.Context) {
 	}
 
 	user.Password = string(hashedPassword)
+	user.CreatedAt = time.Now()
+	user.UpdatedAt = time.Now()
 
 	collection := utils.GetCollection("users")
 
@@ -97,7 +100,7 @@ func GoogleLogin(c *gin.Context) {
 	c.SetCookie("oauth_state", state, 300, "/", "", false, true)
 
 	url := utils.GoogleOAuthConfig.AuthCodeURL(state)
-	c.JSON(http.StatusOK, gin.H{"auth_url": url})
+	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
 func GoogleCallback(c *gin.Context) {
@@ -108,8 +111,14 @@ func GoogleCallback(c *gin.Context) {
 	storedState, err := c.Cookie("oauth_state")
 	log.Printf("State: %s, StoredState: %s", state, storedState)
 
-	if err != nil || state != storedState {
-		log.Printf("State verification failed: %v", err)
+	if err != nil {
+		log.Printf("Failed to get stored state cookie: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing state cookie"})
+		return
+	}
+
+	if state != storedState {
+		log.Printf("State verification failed: received '%s', expected '%s'", state, storedState)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter"})
 		return
 	}
@@ -119,9 +128,17 @@ func GoogleCallback(c *gin.Context) {
 
 	// Exchange code for token
 	code := c.Query("code")
+	if code == "" {
+		log.Printf("No authorization code received")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing authorization code"})
+		return
+	}
+
+	log.Printf("Exchanging code for token...")
 	token, err := utils.GoogleOAuthConfig.Exchange(c, code)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to exchange code for token"})
+		log.Printf("Failed to exchange code for token: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to exchange code for token: %v", err)})
 		return
 	}
 
@@ -151,6 +168,8 @@ func GoogleCallback(c *gin.Context) {
 			GoogleID:     googleUser.ID,
 			Picture:      googleUser.Picture,
 			AuthProvider: "google",
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
 		}
 
 		log.Printf("Attempting to insert user: %+v", newUser)
@@ -206,21 +225,114 @@ func GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	// Respond with token and user data
-	c.JSON(http.StatusOK, gin.H{
-		"token": jwtToken,
-		"user": gin.H{
-			"id":       existingUser.ID.Hex(),
-			"name":     existingUser.Username,
-			"email":    existingUser.Email,
-			"picture":  existingUser.Picture,
-			"provider": existingUser.AuthProvider,
-		},
-	})
+	// Redirect to frontend with token instead of JSON response
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3001" // Default fallback
+	}
+	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s&user=%s",
+		frontendURL,
+		jwtToken,
+		existingUser.ID.Hex())
+
+	log.Printf("Redirecting to: %s", redirectURL)
+	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 
 func generateRandomState() string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)
+}
+
+func GetProfile(c *gin.Context) {
+	userIDInterface, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	userIDString := userIDInterface.(string)
+	userID, err := primitive.ObjectIDFromHex(userIDString)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	collection := utils.GetCollection("users")
+	var user models.User
+	err = collection.FindOne(c, bson.M{"_id": userID}).Decode(&user)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":         user.ID.Hex(),
+		"name":       user.Username,
+		"email":      user.Email,
+		"avatar_url": user.Picture,
+		"created_at": user.CreatedAt,
+	})
+}
+
+func DeleteProfile(c *gin.Context) {
+	userIDInterface, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	userIDString := userIDInterface.(string)
+	userID, err := primitive.ObjectIDFromHex(userIDString)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Delete all user files from GCS first
+	fileCollection := utils.GetCollection("files")
+	filesCursor, err := fileCollection.Find(c, bson.M{"user_id": userID})
+	if err == nil {
+		defer filesCursor.Close(c)
+		var files []models.File
+		if err = filesCursor.All(c, &files); err == nil {
+			for _, file := range files {
+				utils.DeleteFromGCS(c, file.Path)
+			}
+		}
+	}
+
+	// Delete all user files from database
+	_, err = fileCollection.DeleteMany(c, bson.M{"user_id": userID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete user files"})
+		return
+	}
+
+	// Delete all user folders
+	folderCollection := utils.GetCollection("folders")
+	_, err = folderCollection.DeleteMany(c, bson.M{"user_id": userID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete user folders"})
+		return
+	}
+
+	// Delete user storage record
+	storageCollection := utils.GetCollection("user_storage")
+	_, err = storageCollection.DeleteMany(c, bson.M{"user_id": userID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete user storage"})
+		return
+	}
+
+	// Finally delete the user
+	userCollection := utils.GetCollection("users")
+	_, err = userCollection.DeleteOne(c, bson.M{"_id": userID})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete user account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Account deleted successfully"})
 }

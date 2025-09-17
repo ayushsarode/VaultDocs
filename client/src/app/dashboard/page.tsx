@@ -3,19 +3,18 @@
 import React, { useEffect, useState } from "react";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import DashboardLayout from "@/components/DashboardLayout";
+import LoadingSpinner from "@/components/LoadingSpinner";
 import { storageAPI, folderAPI, fileAPI } from "@/lib/api";
-import { useAuth } from "@/contexts/AuthContext";
 import {
-  Cloud,
   Folder,
   File,
   Upload,
-  Plus,
   FileText,
   Image,
   Video,
   Music,
   Archive,
+  Share2,
   Star,
 } from "lucide-react";
 
@@ -26,28 +25,44 @@ interface StorageInfo {
   folder_count: number;
 }
 
+interface DashboardFile {
+  id: string;
+  name: string;
+  original_name: string;
+  size: number;
+  content_type: string;
+  url: string;
+  created_at: string;
+  folder_id?: string;
+  is_favorite?: boolean;
+}
+
 export default function DashboardPage() {
-  const { user } = useAuth();
   const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
-  const [recentFiles, setRecentFiles] = useState<any[]>([]);
-  const [allFiles, setAllFiles] = useState<any[]>([]);
+  const [recentFiles, setRecentFiles] = useState<DashboardFile[]>([]);
+  const [allFiles, setAllFiles] = useState<DashboardFile[]>([]); // Store all files for counting
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<string>("all");
 
   const fetchAllFilesRecursively = async () => {
     try {
       const allFiles = [];
 
+      // First get all files from root folder
       const rootFiles = await fileAPI.getAll();
       allFiles.push(...rootFiles);
 
+      // Then get all folders recursively and fetch files from each
       const fetchFilesFromFolders = async (parentId?: string) => {
         const folders = await folderAPI.getAll(parentId);
 
         for (const folder of folders) {
+          // Get files from this folder
           const folderFiles = await fileAPI.getAll(folder.id);
           allFiles.push(...folderFiles);
 
+          // Recursively fetch from subfolders
           await fetchFilesFromFolders(folder.id);
         }
       };
@@ -62,19 +77,86 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const fetchDashboardData = async () => {
+      const timeoutId = setTimeout(() => {
+        setError("Loading timeout - using default values");
+        setLoading(false);
+      }, 10000);
+
       try {
-        const storage = await storageAPI.getInfo();
-        setStorageInfo(storage);
+        setError(null);
 
-        const allFilesArray = await fetchAllFilesRecursively();
-        setAllFiles(allFilesArray);
+        // Set default storage info first
+        const defaultStorage = {
+          used_space: 0,
+          max_space: 2147483648,
+          file_count: 0,
+          folder_count: 0,
+        };
+        setStorageInfo(defaultStorage);
 
-        const rootFiles = await fileAPI.getAll();
-        setRecentFiles(rootFiles.slice(0, 8));
+        // Try to fetch actual storage data
+        try {
+          const storage = await storageAPI.getInfo();
+
+          // More robust validation and normalization
+          if (storage && typeof storage === "object") {
+            const normalizedStorage = {
+              used_space: (() => {
+                const value = Number(storage.used_space);
+                if (isNaN(value) || value < 0) return 0;
+                return value;
+              })(),
+              max_space: (() => {
+                const value = Number(storage.max_space);
+                return isNaN(value) || value <= 0 ? 2147483648 : value; // 2GB default
+              })(),
+              file_count: (() => {
+                const value = Number(storage.file_count);
+                return isNaN(value) || value < 0 ? 0 : value;
+              })(),
+              folder_count: (() => {
+                const value = Number(storage.folder_count);
+                return isNaN(value) || value < 0 ? 0 : value;
+              })(),
+            };
+
+            setStorageInfo(normalizedStorage);
+          } else {
+            console.warn(
+              "Invalid storage data structure received, using defaults:",
+              storage
+            );
+          }
+        } catch (storageError) {
+          console.error("Storage API failed:", storageError);
+        }
+
+        // Fetch files
+        try {
+          const allFilesArray = await fetchAllFilesRecursively();
+          setAllFiles(allFilesArray);
+
+          const rootFiles = await fileAPI.getAll();
+          setRecentFiles(rootFiles.slice(0, 8));
+        } catch (filesError) {
+          console.error("Files API failed:", filesError);
+          setRecentFiles([]);
+          setAllFiles([]);
+        }
+
+        clearTimeout(timeoutId);
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
+        setError("Failed to load dashboard data");
         setRecentFiles([]);
         setAllFiles([]);
+        setStorageInfo({
+          used_space: 0,
+          max_space: 2147483648,
+          file_count: 0,
+          folder_count: 0,
+        });
+        clearTimeout(timeoutId);
       } finally {
         setLoading(false);
       }
@@ -83,22 +165,51 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, []);
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return "0 Bytes";
+  const formatFileSize = (bytes: number | undefined | null) => {
+    // Handle undefined, null, NaN, or negative values
+    if (
+      bytes === undefined ||
+      bytes === null ||
+      isNaN(Number(bytes)) ||
+      Number(bytes) < 0
+    ) {
+      return "0 Bytes";
+    }
+
+    const numBytes = Number(bytes);
+    if (numBytes === 0) return "0 Bytes";
+
     const k = 1024;
     const sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+    const i = Math.floor(Math.log(numBytes) / Math.log(k));
+    const sizeIndex = Math.min(i, sizes.length - 1); // Prevent array out of bounds
+
+    const formattedSize = parseFloat(
+      (numBytes / Math.pow(k, sizeIndex)).toFixed(2)
+    );
+    return formattedSize + " " + sizes[sizeIndex];
   };
 
   const getStoragePercentage = () => {
-    if (!storageInfo) return 0;
-    return (storageInfo.used_space / storageInfo.max_space) * 100;
+    if (
+      !storageInfo ||
+      typeof storageInfo.used_space !== "number" ||
+      typeof storageInfo.max_space !== "number" ||
+      isNaN(storageInfo.used_space) ||
+      isNaN(storageInfo.max_space) ||
+      storageInfo.max_space <= 0
+    ) {
+      return 0;
+    }
+    const percentage = (storageInfo.used_space / storageInfo.max_space) * 100;
+    return Math.min(Math.max(percentage, 0), 100); // Ensure between 0-100
   };
 
   const getFileIcon = (contentType: string) => {
     if (contentType?.includes("image"))
-      return <Image className="h-5 w-5 text-blue-500" />;
+      return (
+        <Image className="h-5 w-5 text-blue-500" aria-label="Image file" />
+      );
     if (contentType?.includes("video"))
       return <Video className="h-5 w-5 text-red-500" />;
     if (contentType?.includes("audio"))
@@ -134,6 +245,7 @@ export default function DashboardPage() {
   };
 
   const getFileTypeStats = () => {
+    // Use ALL files (including subfolders) for counting
     const images = allFiles.filter((f) =>
       f.content_type?.includes("image")
     ).length;
@@ -154,33 +266,39 @@ export default function DashboardPage() {
     return { images, videos, documents, audio, other };
   };
 
-  const handleFileClick = async (file: any) => {
+  const handleFileClick = async (file: DashboardFile) => {
     try {
       const response = await fileAPI.download(file.id);
 
       if (response.method === "proxy") {
+        // For proxy downloads, create a blob URL and open it
         const link = document.createElement("a");
         link.href = response.download_url;
 
+        // Check if it's an image, PDF, or other viewable content
         if (
           file.content_type?.includes("image") ||
           file.content_type?.includes("pdf") ||
           file.content_type?.includes("text")
         ) {
+          // Open in new tab for viewing
           link.target = "_blank";
           link.click();
         } else {
+          // Download the file
           link.download = file.original_name;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
         }
 
+        // Clean up blob URL
         setTimeout(
           () => window.URL.revokeObjectURL(response.download_url),
           100
         );
       } else {
+        // For signed URLs, open in new tab
         window.open(response.download_url, "_blank");
       }
     } catch (error) {
@@ -193,10 +311,11 @@ export default function DashboardPage() {
     fileId: string,
     event: React.MouseEvent
   ) => {
-    event.stopPropagation();
+    event.stopPropagation(); // Prevent file click when clicking star
     try {
       await fileAPI.toggleFavorite(fileId);
 
+      // Update the files in state
       setRecentFiles((prev) =>
         prev.map((file) =>
           file.id === fileId
@@ -222,15 +341,10 @@ export default function DashboardPage() {
     return (
       <ProtectedRoute>
         <DashboardLayout>
-          <div className="flex items-center justify-center min-h-[60vh]">
-            <div className="flex flex-col items-center space-y-4">
-              <div className="relative">
-                <div className="w-12 h-12 border-4 border-blue-200 rounded-full animate-spin"></div>
-                <div className="w-12 h-12 border-4 border-blue-600 rounded-full animate-spin absolute top-0 left-0 border-t-transparent"></div>
-              </div>
-              <p className="text-gray-600">Loading your dashboard...</p>
-            </div>
-          </div>
+          <LoadingSpinner
+            variant="fullscreen"
+            text="Loading your dashboard..."
+          />
         </DashboardLayout>
       </ProtectedRoute>
     );
@@ -240,9 +354,29 @@ export default function DashboardPage() {
     <ProtectedRoute>
       <DashboardLayout>
         <div className="p-8 space-y-8 bg-white min-h-screen">
-          {/* Welcome Header */}
+          {error && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg
+                    className="h-5 w-5 text-yellow-400"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-yellow-800">{error}</p>
+                </div>
+              </div>
+            </div>
+          )}
 
-          {/* Storage Overview - Minimalistic Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="p-8">
               <div className="flex items-center justify-between mb-6">
@@ -251,19 +385,17 @@ export default function DashboardPage() {
                     Storage
                   </h2>
                   <p className="text-gray-600 text-sm">
-                    {storageInfo
-                      ? formatFileSize(storageInfo.used_space)
-                      : "0 Bytes"}{" "}
-                    of{" "}
-                    {storageInfo
-                      ? formatFileSize(storageInfo.max_space)
-                      : "2 GB"}{" "}
-                    used
+                    {formatFileSize(storageInfo?.used_space)} of{" "}
+                    {formatFileSize(storageInfo?.max_space || 2147483648)} used
                   </p>
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-light text-gray-900 mb-1">
-                    {getStoragePercentage().toFixed(1)}%
+                    {(() => {
+                      const percentage = getStoragePercentage();
+                      return isNaN(percentage) ? "0.0" : percentage.toFixed(1);
+                    })()}
+                    %
                   </div>
                   <div className="text-gray-500 text-xs">Storage used</div>
                 </div>
@@ -272,13 +404,17 @@ export default function DashboardPage() {
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-1000 ease-out"
-                  style={{ width: `${getStoragePercentage()}%` }}
+                  style={{
+                    width: `${(() => {
+                      const percentage = getStoragePercentage();
+                      return isNaN(percentage) ? 0 : percentage;
+                    })()}%`,
+                  }}
                 ></div>
               </div>
             </div>
           </div>
 
-          {/* File Type Categories */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {[
               {
@@ -343,7 +479,6 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Main Content - Recent Files */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200">
             <div className="p-8 border-b border-gray-200">
               <div className="flex items-center justify-between">
@@ -441,7 +576,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Quick Actions - Minimalistic */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200">
             <div className="p-8">
               <h3 className="text-lg font-medium text-gray-900 mb-6">
@@ -481,6 +615,20 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 </a>
+
+                <button className="flex items-center space-x-4 p-6 text-gray-700 hover:bg-gray-50 rounded-2xl transition-colors group">
+                  <div className="p-3 bg-purple-50 rounded-xl group-hover:bg-purple-100 transition-colors">
+                    <Share2 className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-gray-900 mb-1">
+                      Share files
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Share with others securely
+                    </div>
+                  </div>
+                </button>
               </div>
             </div>
           </div>

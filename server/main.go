@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/ayushsarode/DriftBox/handlers"
-	"github.com/ayushsarode/DriftBox/middleware"
-	"github.com/ayushsarode/DriftBox/utils"
+	"github.com/ayushsarode/VaultDocs/handlers"
+	"github.com/ayushsarode/VaultDocs/middleware"
+	"github.com/ayushsarode/VaultDocs/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -42,11 +42,33 @@ func main() {
 
 	route := gin.Default()
 
-	//cors
+	//cors - improved configuration
 	route.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.Request.Header.Get("Origin")
+
+		// Allow multiple frontend URLs for different environments
+		allowedOrigins := []string{
+			"http://localhost:3002", // Default Next.js dev server
+			"http://localhost:3001", // Alternative port
+			"http://127.0.0.1:3003", // Alternative localhost format
+		}
+
+		// Check if origin is allowed
+		allowed := false
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == allowedOrigin {
+				allowed = true
+				break
+			}
+		}
+
+		if allowed {
+			c.Header("Access-Control-Allow-Origin", origin)
+		}
+
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Header("Access-Control-Allow-Credentials", "true")
 
 		log.Printf("CORS middleware: %s %s", c.Request.Method, c.Request.URL.Path)
 
@@ -85,10 +107,12 @@ func main() {
 		// Folder management
 		protected.POST("/folders", handlers.CreateFolder)
 		protected.GET("/folders", handlers.GetFolders)
+		protected.GET("/folders/all", handlers.GetAllFolders)
 		protected.DELETE("/folders/:id", handlers.DeleteFolder)
 
 		// File management
 		protected.POST("/files/upload", handlers.UploadFile)
+		protected.POST("/files/upload-multiple", handlers.UploadMultipleFiles)
 		protected.GET("/files", handlers.GetFiles)
 		protected.GET("/files/favorites", handlers.GetFavoriteFiles)
 		protected.POST("/files/toggle-favorite/:id", handlers.ToggleFavorite)
@@ -105,6 +129,10 @@ func main() {
 
 		// Storage info
 		protected.GET("/storage", handlers.GetStorageInfo)
+
+		// Profile management
+		protected.GET("/profile", handlers.GetProfile)
+		protected.DELETE("/profile", handlers.DeleteProfile)
 	}
 
 	log.Printf("Starting server on port %s", httpPort)

@@ -16,22 +16,27 @@ var (
 	bucketName    string
 )
 
+// InitGCS initializes Google Cloud Storage client
 func InitGCS() error {
 	ctx := context.Background()
 
+	// Get bucket name from environment
 	bucketName = os.Getenv("GCS_BUCKET_NAME")
 	if bucketName == "" {
 		return fmt.Errorf("GCS_BUCKET_NAME environment variable not set")
 	}
 
+	// Get service account key path from environment
 	credentialsPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 	var client *storage.Client
 	var err error
 
 	if credentialsPath != "" {
+		// Use service account key file
 		client, err = storage.NewClient(ctx, option.WithCredentialsFile(credentialsPath))
 	} else {
+		// Use default credentials (for production with workload identity)
 		client, err = storage.NewClient(ctx)
 	}
 
@@ -43,6 +48,7 @@ func InitGCS() error {
 	return nil
 }
 
+// UploadToGCS uploads a file to Google Cloud Storage
 func UploadToGCS(ctx context.Context, fileName string, fileReader io.Reader, contentType string) (string, error) {
 	if storageClient == nil {
 		return "", fmt.Errorf("GCS client not initialized")
@@ -51,18 +57,22 @@ func UploadToGCS(ctx context.Context, fileName string, fileReader io.Reader, con
 	bucket := storageClient.Bucket(bucketName)
 	object := bucket.Object(fileName)
 
+	// Create a writer to upload the file
 	writer := object.NewWriter(ctx)
 	writer.ContentType = contentType
 
+	//  metadata
 	writer.Metadata = map[string]string{
 		"uploaded": time.Now().Format(time.RFC3339),
 	}
 
+	// Copy file data to GCS
 	if _, err := io.Copy(writer, fileReader); err != nil {
 		writer.Close()
 		return "", fmt.Errorf("failed to upload file: %v", err)
 	}
 
+	// Close the writer to finalize the upload
 	if err := writer.Close(); err != nil {
 		return "", fmt.Errorf("failed to close writer: %v", err)
 	}

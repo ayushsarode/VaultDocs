@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DriftBox - Cloud Storage",
+  title: "VaultDocs - Cloud Storage",
   description: "Your personal cloud storage solution",
 };
 

@@ -1,6 +1,10 @@
 package models
 
-import "go.mongodb.org/mongo-driver/bson/primitive"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
 type User struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
@@ -10,4 +14,6 @@ type User struct {
 	GoogleID     string             `bson:"google_id,omitempty" json:"google_id,omitempty"`
 	Picture      string             `bson:"picture,omitempty" json:"picture,omitempty"`
 	AuthProvider string             `bson:"auth_provider,omitempty" json:"auth_provider,omitempty"`
+	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
 }

@@ -15,8 +15,20 @@ import {
   Upload,
 } from "lucide-react";
 
+interface StarredFile {
+  id: string;
+  name: string;
+  original_name: string;
+  size: number;
+  content_type: string;
+  url: string;
+  created_at: string;
+  folder_id?: string;
+  is_favorite?: boolean;
+}
+
 export default function StarredPage() {
-  const [favoriteFiles, setFavoriteFiles] = useState<any[]>([]);
+  const [favoriteFiles, setFavoriteFiles] = useState<StarredFile[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,7 +57,9 @@ export default function StarredPage() {
 
   const getFileIcon = (contentType: string) => {
     if (contentType?.includes("image"))
-      return <Image className="h-5 w-5 text-blue-500" />;
+      return (
+        <Image className="h-5 w-5 text-blue-500" aria-label="Image file" />
+      );
     if (contentType?.includes("video"))
       return <Video className="h-5 w-5 text-red-500" />;
     if (contentType?.includes("audio"))
@@ -57,7 +71,7 @@ export default function StarredPage() {
     return <File className="h-5 w-5 text-gray-500" />;
   };
 
-  const handleFileClick = async (file: any) => {
+  const handleFileClick = async (file: StarredFile) => {
     try {
       const response = await fileAPI.download(file.id);
 
@@ -129,7 +143,6 @@ export default function StarredPage() {
     <ProtectedRoute>
       <DashboardLayout>
         <div className="p-8 space-y-8 bg-white min-h-screen">
-          {/* Header */}
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="text-3xl font-light text-gray-900">
@@ -141,7 +154,6 @@ export default function StarredPage() {
             </div>
           </div>
 
-          {/* Files Grid */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200">
             <div className="p-8 border-b border-gray-200">
               <div className="flex items-center justify-between">

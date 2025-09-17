@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import Cookies from "js-cookie";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import DashboardLayout from "@/components/DashboardLayout";
-import { fileAPI, folderAPI } from "@/lib/api";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import { folderAPI } from "@/lib/api";
 import {
   Upload,
   File,
@@ -13,8 +15,8 @@ import {
   AlertCircle,
   Folder,
   FolderOpen,
-  ChevronRight,
   ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 interface UploadFile {
@@ -30,239 +32,215 @@ interface FolderType {
   name: string;
   parent_id: string | null;
   full_path?: string;
-  level?: number;
+  display_name?: string;
   children?: FolderType[];
-  hasChildren?: boolean;
+  level?: number;
 }
 
-export default function UploadPage() {
+interface SuccessfulFile {
+  id: string;
+  name: string;
+  original_name: string;
+  size: number;
+  content_type: string;
+}
+
+function UploadPageContent() {
   const searchParams = useSearchParams();
   const currentFolderId = searchParams.get("folder");
 
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [folders, setFolders] = useState<FolderType[]>([]);
-  const [selectedFolder, setSelectedFolder] = useState<string>(
-    currentFolderId || ""
-  );
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
     new Set()
   );
+  const [selectedFolder, setSelectedFolder] = useState<string>(
+    currentFolderId || ""
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    fetchAllFolders();
-  }, []);
-
-  useEffect(() => {
-    if (currentFolderId) {
-      setSelectedFolder(currentFolderId);
-    }
-  }, [currentFolderId]);
-
-  const fetchAllFolders = async () => {
-    try {
-      const rootFolders = await folderAPI.getAll();
-      let allFolders = [...rootFolders];
-
-      const fetchSubfolders = async (parentFolders: any[]) => {
-        for (const folder of parentFolders) {
-          try {
-            const subfolders = await folderAPI.getAll(folder.id);
-            if (subfolders && subfolders.length > 0) {
-              allFolders.push(...subfolders);
-              await fetchSubfolders(subfolders);
-            }
-          } catch (error) {
-            console.log(`No subfolders for ${folder.name}`);
-          }
+  const findFolderById = React.useCallback(
+    (folders: FolderType[], id: string): FolderType | null => {
+      for (const folder of folders) {
+        if (folder.id === id) return folder;
+        if (folder.children && folder.children.length > 0) {
+          const found = findFolderById(folder.children, id);
+          if (found) return found;
         }
-      };
-
-      await fetchSubfolders(rootFolders);
-
-      if (!Array.isArray(allFolders)) {
-        setFolders([]);
-        return;
       }
+      return null;
+    },
+    []
+  );
 
-      const buildHierarchy = (folders: any[]): FolderType[] => {
-        const folderMap = new Map<string, any>();
-        folders.forEach((folder) => folderMap.set(folder.id, folder));
-
-        const buildPath = (folder: any): { path: string; level: number } => {
-          if (!folder.parent_id) {
-            return { path: folder.name, level: 0 };
-          }
-          const parent = folderMap.get(folder.parent_id);
-          if (parent) {
-            const parentInfo = buildPath(parent);
-            return {
-              path: `${parentInfo.path} / ${folder.name}`,
-              level: parentInfo.level + 1,
-            };
-          }
-          return { path: folder.name, level: 0 };
-        };
-
-        const rootFolders: FolderType[] = [];
-        const allFoldersWithHierarchy = folders.map((folder) => {
-          const { path, level } = buildPath(folder);
-          const hasChildren = folders.some((f) => f.parent_id === folder.id);
-          return {
-            ...folder,
-            full_path: path,
-            level,
-            children: [],
-            hasChildren,
-          };
+  const expandParentFolders = React.useCallback(
+    (folderId: string) => {
+      const folder = findFolderById(folders, folderId);
+      if (folder && folder.parent_id) {
+        setExpandedFolders((prev) => {
+          const newExpanded = new Set(prev);
+          newExpanded.add(folder.parent_id!);
+          return newExpanded;
         });
-
-        const folderHierarchyMap = new Map<string, FolderType>();
-        allFoldersWithHierarchy.forEach((folder) => {
-          folderHierarchyMap.set(folder.id, folder);
-        });
-
-        allFoldersWithHierarchy.forEach((folder) => {
-          if (!folder.parent_id) {
-            rootFolders.push(folder);
-          } else {
-            const parent = folderHierarchyMap.get(folder.parent_id);
-            if (parent) {
-              if (!parent.children) parent.children = [];
-              parent.children.push(folder);
-            }
-          }
-        });
-
-        const sortFolders = (folders: FolderType[]) => {
-          folders.sort((a, b) => a.name.localeCompare(b.name));
-          folders.forEach((folder) => {
-            if (folder.children && folder.children.length > 0) {
-              sortFolders(folder.children);
-            }
-          });
-        };
-
-        sortFolders(rootFolders);
-        return rootFolders;
-      };
-
-      const hierarchicalFolders = buildHierarchy(allFolders);
-      setFolders(hierarchicalFolders);
-
-      if (currentFolderId) {
-        const expandParents = (folderId: string) => {
-          const allFlat = getAllFoldersFlat(hierarchicalFolders);
-          const targetFolder = allFlat.find((f) => f.id === folderId);
-          if (targetFolder && targetFolder.parent_id) {
-            setExpandedFolders((prev) =>
-              new Set(prev).add(targetFolder.parent_id!)
-            );
-            expandParents(targetFolder.parent_id);
-          }
-        };
-        expandParents(currentFolderId);
+        // Recursively expand parent folders
+        expandParentFolders(folder.parent_id);
       }
+    },
+    [folders, findFolderById]
+  );
+
+  const fetchAllFolders = React.useCallback(async () => {
+    try {
+      console.log("Fetching all folders...");
+      const response = await folderAPI.getAllForHierarchy();
+      console.log("Raw API response:", response);
+
+      // folderAPI.getAllForHierarchy() returns folders array directly, not wrapped in data
+      const folders = Array.isArray(response) ? response : [];
+      console.log("Folders array:", folders);
+
+      // Build folder hierarchy with full paths
+      const folderHierarchy = buildFolderHierarchy(folders);
+      console.log("Built hierarchy:", folderHierarchy);
+
+      setFolders(folderHierarchy);
+      console.log("Fetched folders:", folderHierarchy.length);
     } catch (error) {
       console.error("Error fetching folders:", error);
+      // Set empty array on error
       setFolders([]);
     }
+  }, []);
+
+  // Helper function to build folder hierarchy with full paths
+  const buildFolderHierarchy = (folders: FolderType[]) => {
+    const folderMap = new Map<string, FolderType>();
+    const rootFolders: FolderType[] = [];
+
+    // First pass: create folder map
+    folders.forEach((folder) => {
+      folderMap.set(folder.id, {
+        ...folder,
+        children: [],
+        full_path: folder.name,
+        level: 0,
+      });
+    });
+
+    // Second pass: build hierarchy and full paths
+    folders.forEach((folder) => {
+      const folderData = folderMap.get(folder.id);
+      if (!folderData) return;
+
+      if (folder.parent_id && folderMap.has(folder.parent_id)) {
+        // Has parent - add to parent's children and build full path
+        const parent = folderMap.get(folder.parent_id);
+        if (parent && parent.children) {
+          parent.children.push(folderData);
+          folderData.full_path = `${parent.full_path}/${folder.name}`;
+          folderData.level = (parent.level || 0) + 1;
+        }
+      } else {
+        // Root folder
+        rootFolders.push(folderData);
+      }
+    });
+
+    return rootFolders;
   };
 
-  const getAllFoldersFlat = (folders: FolderType[]): FolderType[] => {
-    const result: FolderType[] = [];
-    const traverse = (folderList: FolderType[]) => {
-      folderList.forEach((folder) => {
-        result.push(folder);
-        if (folder.children && folder.children.length > 0) {
-          traverse(folder.children);
-        }
-      });
-    };
-    traverse(folders);
-    return result;
-  };
+  // Effects
+  useEffect(() => {
+    fetchAllFolders();
+  }, [fetchAllFolders]);
+
+  useEffect(() => {
+    // Update selected folder when URL parameter changes
+    if (currentFolderId) {
+      setSelectedFolder(currentFolderId);
+      // Auto-expand parent folders when a folder is selected
+      expandParentFolders(currentFolderId);
+    }
+  }, [currentFolderId, expandParentFolders]);
 
   const toggleFolderExpansion = (folderId: string) => {
     setExpandedFolders((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(folderId)) {
-        newSet.delete(folderId);
+      const newExpanded = new Set(prev);
+      if (newExpanded.has(folderId)) {
+        newExpanded.delete(folderId);
       } else {
-        newSet.add(folderId);
+        newExpanded.add(folderId);
       }
-      return newSet;
+      return newExpanded;
     });
   };
 
-  const getSelectedFolderName = () => {
-    if (!selectedFolder) return "Root Folder";
+  // Recursive component for rendering folder tree
+  const FolderTreeItem: React.FC<{ folder: FolderType; level: number }> = ({
+    folder,
+    level,
+  }) => {
+    const hasChildren = folder.children && folder.children.length > 0;
+    const isExpanded = expandedFolders.has(folder.id);
+    const isSelected = selectedFolder === folder.id;
 
-    const allFlat = getAllFoldersFlat(folders);
-    const folder = allFlat.find((f) => f.id === selectedFolder);
-    return folder ? folder.full_path || folder.name : "Unknown Folder";
-  };
+    const handleFolderSelect = () => {
+      setSelectedFolder(folder.id);
+      // Auto-expand parent folders when selecting
+      if (folder.parent_id) {
+        expandParentFolders(folder.parent_id);
+      }
+    };
 
-  const renderFolderTree = (
-    folders: FolderType[],
-    level: number = 0
-  ): React.ReactNode => {
-    return folders.map((folder) => (
-      <div key={folder.id} className="space-y-1">
-        <div className="flex items-center">
-          {/* Expand/Collapse button - always show if has children */}
-          {folder.hasChildren ? (
+    return (
+      <div key={folder.id}>
+        <div
+          className={`w-full border rounded-lg transition-colors ${
+            isSelected ? "border-blue-500 bg-blue-50" : "border-gray-300"
+          }`}
+          style={{ marginLeft: `${level * 20}px` }}
+        >
+          <div className="flex items-center">
+            {/* Dropdown Arrow Button */}
+            {hasChildren ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFolderExpansion(folder.id);
+                }}
+                className="flex-shrink-0 p-3 hover:bg-gray-100 rounded-l-lg border-r border-gray-200 transition-colors"
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4 text-gray-600" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 text-gray-600" />
+                )}
+              </button>
+            ) : (
+              <div className="w-10 flex-shrink-0" />
+            )}
+
+            {/* Folder Selection Button */}
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFolderExpansion(folder.id);
-              }}
-              className="p-1 hover:bg-gray-200 rounded transition-colors flex-shrink-0 mr-1"
-              style={{ marginLeft: `${level * 16}px` }}
+              onClick={handleFolderSelect}
+              className="flex-1 p-3 text-left hover:bg-gray-50 transition-colors rounded-r-lg flex items-center"
             >
-              {expandedFolders.has(folder.id) ? (
-                <ChevronDown className="h-4 w-4 text-gray-600" />
-              ) : (
-                <ChevronRight className="h-4 w-4 text-gray-600" />
-              )}
+              <Folder className="h-5 w-5 text-yellow-500 mr-3 flex-shrink-0" />
+              <span className="font-medium truncate">{folder.name}</span>
             </button>
-          ) : (
-            <div
-              className="w-6 h-6 flex-shrink-0"
-              style={{ marginLeft: `${level * 16}px` }}
-            />
-          )}
-
-          {/* Folder button */}
-          <button
-            onClick={() => setSelectedFolder(folder.id)}
-            className={`flex-1 p-2 border rounded-lg text-left hover:bg-gray-50 transition-colors ${
-              selectedFolder === folder.id
-                ? "border-blue-500 bg-blue-50"
-                : "border-gray-300"
-            }`}
-          >
-            <div className="flex items-center">
-              <Folder className="h-4 w-4 text-yellow-600 mr-2 flex-shrink-0" />
-              <span className="text-sm font-medium truncate">
-                {folder.name}
-              </span>
-            </div>
-          </button>
+          </div>
         </div>
 
-        {/* Render children if expanded */}
-        {folder.hasChildren &&
-          expandedFolders.has(folder.id) &&
-          folder.children &&
-          folder.children.length > 0 && (
-            <div className="ml-2">
-              {renderFolderTree(folder.children, level + 1)}
-            </div>
-          )}
+        {hasChildren && isExpanded && (
+          <div className="mt-2 space-y-2">
+            {folder.children!.map((child) => (
+              <FolderTreeItem key={child.id} folder={child} level={level + 1} />
+            ))}
+          </div>
+        )}
       </div>
-    ));
+    );
   };
 
   const handleFileSelect = (files: FileList | null) => {
@@ -298,13 +276,220 @@ export default function UploadPage() {
     setUploadFiles((prev) => prev.filter((file) => file.id !== id));
   };
 
-  const uploadSingleFile = async (uploadFile: UploadFile) => {
+  // Upload multiple files using the new backend endpoint with goroutines
+  const uploadMultipleFiles = async (filesToUpload: UploadFile[]) => {
+    // If only one file, use single upload endpoint
+    if (filesToUpload.length === 1) {
+      return await uploadSingleFileAPI(filesToUpload[0]);
+    }
+
     const formData = new FormData();
-    formData.append("file", uploadFile.file);
+
+    // Add all files to FormData
+    filesToUpload.forEach((uploadFile) => {
+      formData.append("files", uploadFile.file);
+    });
+
+    // Add folder ID if selected
     if (selectedFolder) {
       formData.append("folder_id", selectedFolder);
     }
 
+    // Set all files to uploading status
+    setUploadFiles((prev) =>
+      prev.map((file) =>
+        filesToUpload.some((f) => f.id === file.id)
+          ? { ...file, status: "uploading", progress: 0 }
+          : file
+      )
+    );
+
+    try {
+      // Get token from cookies (same as api.ts)
+      const token = Cookies.get("token");
+      console.log(
+        "🔑 Token check for multiple upload:",
+        token ? "Token exists" : "No token found"
+      );
+
+      if (!token) {
+        throw new Error("No authentication token found. Please login again.");
+      }
+
+      // Start progress animation before making the request
+      const progressInterval = setInterval(() => {
+        setUploadFiles((prev) =>
+          prev.map((file) =>
+            filesToUpload.some((f) => f.id === file.id) &&
+            file.status === "uploading"
+              ? { ...file, progress: Math.min(file.progress + 8, 85) }
+              : file
+          )
+        );
+      }, 300);
+
+      // Use multiple upload endpoint for multiple files
+      const response = await fetch(
+        "http://localhost:8000/api/files/upload-multiple",
+        {
+          method: "POST",
+          body: formData,
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      console.log("📤 Multiple upload response status:", response.status);
+
+      if (response.status === 401) {
+        clearInterval(progressInterval);
+        throw new Error("Authentication failed. Please login again.");
+      }
+
+      if (!response.ok) {
+        clearInterval(progressInterval);
+        const errorData = await response
+          .json()
+          .catch(() => ({ error: "Unknown error" }));
+        throw new Error(
+          `HTTP ${response.status}: ${errorData.error || response.statusText}`
+        );
+      }
+
+      const result = await response.json();
+
+      console.log("📤 Multiple upload result:", result);
+      console.log("📊 Backend response structure:", {
+        successful: result.successful,
+        failed: result.failed,
+        successful_files: result.successful_files,
+        errors: result.errors,
+        total_uploaded: result.total_uploaded,
+      });
+
+      // Continue progress to 95% before completing
+      setUploadFiles((prev) =>
+        prev.map((file) =>
+          filesToUpload.some((f) => f.id === file.id) &&
+          file.status === "uploading"
+            ? { ...file, progress: 95 }
+            : file
+        )
+      );
+
+      // Wait a moment then clear interval and update final status
+      setTimeout(() => {
+        clearInterval(progressInterval);
+
+        // Update files based on backend response format
+        setUploadFiles((prev) =>
+          prev.map((file) => {
+            const uploadIndex = filesToUpload.findIndex(
+              (f) => f.id === file.id
+            );
+            if (uploadIndex === -1) return file;
+
+            // Check if this file was uploaded successfully
+            const wasSuccessful = result.successful_files?.some(
+              (successFile: SuccessfulFile) =>
+                successFile.original_name === file.file.name ||
+                successFile.name === file.file.name
+            );
+
+            // Check if this file had an error
+            const errorMessage = result.errors?.find((error: string) =>
+              error.includes(file.file.name)
+            );
+
+            if (wasSuccessful) {
+              return { ...file, status: "success", progress: 100 };
+            } else if (errorMessage) {
+              return {
+                ...file,
+                status: "error",
+                error: errorMessage,
+                progress: 0,
+              };
+            } else if (
+              result.successful > 0 &&
+              uploadIndex < result.successful
+            ) {
+              // Fallback: assume first N files were successful
+              return { ...file, status: "success", progress: 100 };
+            } else {
+              return {
+                ...file,
+                status: "error",
+                error: "Upload failed",
+                progress: 0,
+              };
+            }
+          })
+        );
+      }, 500);
+
+      // Show success/failure messages
+      if (result.successful > 0) {
+        console.log(`✅ Successfully uploaded ${result.successful} files`);
+      }
+
+      if (result.failed > 0) {
+        console.warn(`❌ Failed to upload ${result.failed} files`);
+      }
+
+      return result;
+    } catch (error: unknown) {
+      console.error("Upload error:", error);
+
+      // Set all files to error status
+      const errorMessage =
+        error instanceof Error ? error.message : "Upload failed";
+      setUploadFiles((prev) =>
+        prev.map((file) =>
+          filesToUpload.some((f) => f.id === file.id)
+            ? {
+                ...file,
+                status: "error",
+                error: errorMessage,
+                progress: 0,
+              }
+            : file
+        )
+      );
+
+      // Show user-friendly error message
+      if (
+        errorMessage.includes("authentication") ||
+        errorMessage.includes("Authentication")
+      ) {
+        alert("🔒 Authentication failed! Please login again.");
+        // Optionally redirect to login page
+        // window.location.href = '/auth/login';
+      } else if (
+        errorMessage.includes("Failed to fetch") ||
+        errorMessage.includes("Network error")
+      ) {
+        alert(
+          "❌ Connection failed! Please ensure the server is running on http://localhost:8000"
+        );
+      } else {
+        alert(`❌ Upload failed: ${errorMessage}`);
+      }
+    }
+  };
+
+  // Single file upload using the single upload endpoint
+  const uploadSingleFileAPI = async (uploadFile: UploadFile) => {
+    const formData = new FormData();
+    formData.append("file", uploadFile.file);
+
+    // Add folder ID if selected
+    if (selectedFolder) {
+      formData.append("folder_id", selectedFolder);
+    }
+
+    // Set file to uploading status
     setUploadFiles((prev) =>
       prev.map((file) =>
         file.id === uploadFile.id
@@ -314,38 +499,136 @@ export default function UploadPage() {
     );
 
     try {
+      // Get token from cookies (same as api.ts)
+      const token = Cookies.get("token");
+      console.log("🔑 Token check:", token ? "Token exists" : "No token found");
+
+      if (!token) {
+        throw new Error("No authentication token found. Please login again.");
+      }
+
+      // Start progress animation before making the request
       const progressInterval = setInterval(() => {
         setUploadFiles((prev) =>
           prev.map((file) =>
             file.id === uploadFile.id && file.status === "uploading"
-              ? { ...file, progress: Math.min(file.progress + 10, 90) }
+              ? { ...file, progress: Math.min(file.progress + 12, 85) }
               : file
           )
         );
       }, 200);
 
-      await fileAPI.upload(formData);
+      // Use single upload endpoint
+      const response = await fetch("http://localhost:8000/api/files/upload", {
+        method: "POST",
+        body: formData,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-      clearInterval(progressInterval);
+      console.log("📤 Upload response status:", response.status);
+
+      if (response.status === 401) {
+        clearInterval(progressInterval);
+        throw new Error("Authentication failed. Please login again.");
+      }
+
+      if (!response.ok) {
+        clearInterval(progressInterval);
+        const errorData = await response
+          .json()
+          .catch(() => ({ error: "Unknown error" }));
+        throw new Error(
+          `HTTP ${response.status}: ${errorData.error || response.statusText}`
+        );
+      }
+
+      const result = await response.json();
+
+      // Continue progress to 95% before completing
       setUploadFiles((prev) =>
         prev.map((file) =>
-          file.id === uploadFile.id
-            ? { ...file, status: "success", progress: 100 }
+          file.id === uploadFile.id && file.status === "uploading"
+            ? { ...file, progress: 95 }
             : file
         )
       );
-    } catch (error: any) {
+
+      // Wait a moment then clear interval and set to 100%
+      setTimeout(() => {
+        clearInterval(progressInterval);
+
+        // Update file status based on backend response format
+        setUploadFiles((prev) =>
+          prev.map((file) =>
+            file.id === uploadFile.id
+              ? result.file
+                ? { ...file, status: "success", progress: 100 }
+                : {
+                    ...file,
+                    status: "error",
+                    error: result.message || "Upload failed",
+                    progress: 0,
+                  }
+              : file
+          )
+        );
+      }, 300);
+
+      console.log("📤 Single upload result:", result);
+      console.log("📊 Single upload response structure:", {
+        message: result.message,
+        file: result.file,
+        hasFile: !!result.file,
+      });
+
+      if (result.file) {
+        console.log(`✅ Successfully uploaded: ${uploadFile.file.name}`);
+      } else {
+        console.warn(
+          `❌ Failed to upload: ${uploadFile.file.name} - ${result.message}`
+        );
+      }
+
+      return result;
+    } catch (error: unknown) {
+      console.error("Single upload error:", error);
+
+      // Set file to error status
+      const errorMessage =
+        error instanceof Error ? error.message : "Upload failed";
       setUploadFiles((prev) =>
         prev.map((file) =>
           file.id === uploadFile.id
             ? {
                 ...file,
                 status: "error",
-                error: error.response?.data?.error || "Upload failed",
+                error: errorMessage,
+                progress: 0,
               }
             : file
         )
       );
+
+      // Show user-friendly error message
+      if (
+        errorMessage.includes("authentication") ||
+        errorMessage.includes("Authentication")
+      ) {
+        alert("🔒 Authentication failed! Please login again.");
+        // Optionally redirect to login page
+        // window.location.href = '/auth/login';
+      } else if (
+        errorMessage.includes("Failed to fetch") ||
+        errorMessage.includes("Network error")
+      ) {
+        alert(
+          "❌ Connection failed! Please ensure the server is running on http://localhost:8000"
+        );
+      } else {
+        alert(`❌ Upload failed: ${errorMessage}`);
+      }
     }
   };
 
@@ -354,9 +637,10 @@ export default function UploadPage() {
       (file) => file.status === "pending"
     );
 
-    for (const file of pendingFiles) {
-      await uploadSingleFile(file);
-    }
+    if (pendingFiles.length === 0) return;
+
+    // Upload all pending files together using goroutines
+    await uploadMultipleFiles(pendingFiles);
   };
 
   const clearCompleted = () => {
@@ -390,61 +674,131 @@ export default function UploadPage() {
     }
   };
 
+  // Upload Statistics Component
+  const UploadStats = () => {
+    const totalFiles = uploadFiles.length;
+    const pending = uploadFiles.filter((f) => f.status === "pending").length;
+    const uploading = uploadFiles.filter(
+      (f) => f.status === "uploading"
+    ).length;
+    const success = uploadFiles.filter((f) => f.status === "success").length;
+    const failed = uploadFiles.filter((f) => f.status === "error").length;
+    const totalSize = uploadFiles.reduce((acc, f) => acc + f.file.size, 0);
+
+    // Calculate progressive uploaded size based on progress
+    const uploadedSize = uploadFiles.reduce((acc, f) => {
+      if (f.status === "success") {
+        return acc + f.file.size; // Fully uploaded
+      } else if (f.status === "uploading") {
+        return acc + (f.file.size * f.progress) / 100; // Partially uploaded based on progress
+      }
+      return acc; // Pending or failed files don't count
+    }, 0);
+
+    if (totalFiles === 0) return null;
+
+    return (
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <h4 className="text-sm font-medium text-blue-900 mb-2">
+          Upload Statistics
+        </h4>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+          <div>
+            <span className="text-blue-700 font-medium">Total Files:</span>
+            <div className="text-blue-900">{totalFiles}</div>
+          </div>
+          <div>
+            <span className="text-yellow-700 font-medium">Pending:</span>
+            <div className="text-yellow-900">{pending}</div>
+          </div>
+          <div>
+            <span className="text-blue-700 font-medium">Uploading:</span>
+            <div className="text-blue-900">{uploading}</div>
+          </div>
+          <div>
+            <span className="text-green-700 font-medium">Success:</span>
+            <div className="text-green-900">{success}</div>
+          </div>
+          <div>
+            <span className="text-red-700 font-medium">Failed:</span>
+            <div className="text-red-900">{failed}</div>
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-blue-700 font-medium text-sm">
+              Total Size:
+            </span>
+            <span className="text-blue-900 ml-1">
+              {formatFileSize(totalSize)}
+            </span>
+          </div>
+          <div>
+            <span className="text-green-700 font-medium text-sm">
+              Uploaded:
+            </span>
+            <span className="text-green-900 ml-1">
+              {formatFileSize(uploadedSize)}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <ProtectedRoute>
       <DashboardLayout>
-        <div className="space-y-4 sm:space-y-6 p-4 sm:p-6 lg:p-10">
+        <div className="space-y-6 p-10">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
-              Upload Files
-            </h1>
+            <h1 className="text-2xl font-bold text-gray-900">Upload Files</h1>
             <p className="mt-1 text-sm text-gray-600">
               Upload files to your cloud storage. Maximum file size: 50MB
             </p>
           </div>
 
-          {/* Folder Selection */}
-          <div className="bg-white shadow rounded-lg p-4 sm:p-6">
-            <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-4">
-              Select Destination Folder
-              {selectedFolder && (
-                <span className="block sm:inline text-sm font-normal text-gray-500 sm:ml-2 mt-1 sm:mt-0">
-                  (Selected: {getSelectedFolderName()})
-                </span>
-              )}
-            </h3>
-            <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto">
+          <div className="bg-white shadow rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">
+                Select Destination Folder
+                {selectedFolder && (
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    (Current:{" "}
+                    {findFolderById(folders, selectedFolder)?.full_path ||
+                      "Root"}
+                    )
+                  </span>
+                )}
+              </h3>
+            </div>
+
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {/* Root Folder */}
               <button
                 onClick={() => setSelectedFolder("")}
-                className={`w-full p-3 sm:p-4 border rounded-lg text-left hover:bg-gray-50 transition-colors ${
+                className={`w-full p-3 border rounded-lg text-left hover:bg-gray-50 transition-colors ${
                   selectedFolder === ""
                     ? "border-blue-500 bg-blue-50"
                     : "border-gray-300"
                 }`}
               >
                 <div className="flex items-center">
-                  <FolderOpen className="h-5 w-5 sm:h-6 sm:w-6 text-blue-500 mr-3" />
-                  <span className="font-medium text-sm sm:text-base">
-                    📁 Root Folder
-                  </span>
+                  <FolderOpen className="h-5 w-5 text-blue-500 mr-3" />
+                  <span className="font-medium">📁 Root Folder</span>
                 </div>
               </button>
-              {Array.isArray(folders) && renderFolderTree(folders)}
+
+              {/* Hierarchical Folder Tree */}
+              {Array.isArray(folders) &&
+                folders.map((folder) => (
+                  <FolderTreeItem key={folder.id} folder={folder} level={0} />
+                ))}
             </div>
           </div>
 
-          {/* Upload Area */}
-          <div className="bg-white shadow rounded-lg p-4 sm:p-6">
-            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="flex items-center">
-                <FolderOpen className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 mr-2" />
-                <span className="text-xs sm:text-sm font-medium text-blue-900">
-                  Files will be uploaded to: {getSelectedFolderName()}
-                </span>
-              </div>
-            </div>
+          <div className="bg-white shadow rounded-lg p-6">
             <div
-              className={`border-2 border-dashed rounded-lg p-6 sm:p-8 text-center transition-colors ${
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
                 isDragOver
                   ? "border-blue-500 bg-blue-50"
                   : "border-gray-300 hover:border-gray-400"
@@ -453,7 +807,7 @@ export default function UploadPage() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
             >
-              <Upload className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-gray-400" />
+              <Upload className="mx-auto h-12 w-12 text-gray-400" />
               <h3 className="mt-2 text-sm font-medium text-gray-900">
                 Upload files
               </h3>
@@ -483,46 +837,88 @@ export default function UploadPage() {
             </div>
           </div>
 
-          {/* Upload Queue */}
+          {/* Upload Statistics */}
+          <UploadStats />
+
           {uploadFiles.length > 0 && (
             <div className="bg-white shadow rounded-lg">
-              <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <h3 className="text-base sm:text-lg font-medium text-gray-900">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-medium text-gray-900">
                     Upload Queue ({uploadFiles.length} files)
+                    {uploadFiles.some((f) => f.status === "uploading") && (
+                      <span className="ml-2 text-sm text-blue-600 font-normal">
+                        Uploading in parallel...
+                      </span>
+                    )}
                   </h3>
                   <div className="flex space-x-2">
                     <button
                       onClick={uploadAllFiles}
                       disabled={
-                        !uploadFiles.some((file) => file.status === "pending")
+                        !uploadFiles.some(
+                          (file) => file.status === "pending"
+                        ) ||
+                        uploadFiles.some((file) => file.status === "uploading")
                       }
-                      className="inline-flex items-center px-3 sm:px-4 py-2 border border-transparent text-xs sm:text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Upload All
+                      {uploadFiles.some((f) => f.status === "uploading") ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Uploading All...
+                        </>
+                      ) : (
+                        "Upload All Files"
+                      )}
                     </button>
                     <button
                       onClick={clearCompleted}
-                      className="inline-flex items-center px-3 sm:px-4 py-2 border border-gray-300 text-xs sm:text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                     >
                       Clear Completed
                     </button>
                   </div>
                 </div>
+
+                {/* Progress Summary */}
+                {uploadFiles.length > 0 && (
+                  <div className="mt-4 grid grid-cols-4 gap-4 text-sm">
+                    <div className="text-gray-600">
+                      Pending:{" "}
+                      {uploadFiles.filter((f) => f.status === "pending").length}
+                    </div>
+                    <div className="text-blue-600">
+                      Uploading:{" "}
+                      {
+                        uploadFiles.filter((f) => f.status === "uploading")
+                          .length
+                      }
+                    </div>
+                    <div className="text-green-600">
+                      Success:{" "}
+                      {uploadFiles.filter((f) => f.status === "success").length}
+                    </div>
+                    <div className="text-red-600">
+                      Failed:{" "}
+                      {uploadFiles.filter((f) => f.status === "error").length}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="divide-y divide-gray-200">
                 {uploadFiles.map((uploadFile) => (
-                  <div key={uploadFile.id} className="px-4 sm:px-6 py-4">
-                    <div className="flex items-start sm:items-center justify-between">
-                      <div className="flex items-start flex-1 min-w-0">
-                        <div className="flex-shrink-0 mt-0.5 sm:mt-0">
+                  <div key={uploadFile.id} className="px-6 py-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center flex-1 min-w-0">
+                        <div className="flex-shrink-0">
                           {getStatusIcon(uploadFile.status)}
                         </div>
-                        <div className="ml-3 sm:ml-4 flex-1 min-w-0">
+                        <div className="ml-4 flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">
                             {uploadFile.file.name}
                           </p>
-                          <p className="text-xs sm:text-sm text-gray-500">
+                          <p className="text-sm text-gray-500">
                             {formatFileSize(uploadFile.file.size)}
                           </p>
                           {uploadFile.status === "uploading" && (
@@ -538,26 +934,24 @@ export default function UploadPage() {
                               </p>
                             </div>
                           )}
+                          {uploadFile.status === "success" && (
+                            <p className="text-sm text-green-600 mt-1">
+                              ✅ Upload completed successfully
+                            </p>
+                          )}
                           {uploadFile.status === "error" &&
                             uploadFile.error && (
-                              <p className="text-xs sm:text-sm text-red-600 mt-1">
-                                {uploadFile.error}
+                              <p className="text-sm text-red-600 mt-1">
+                                ❌ {uploadFile.error}
                               </p>
                             )}
                         </div>
                       </div>
-                      <div className="ml-2 sm:ml-4 flex-shrink-0 flex flex-col sm:flex-row space-y-1 sm:space-y-0 sm:space-x-2">
-                        {uploadFile.status === "pending" && (
-                          <button
-                            onClick={() => uploadSingleFile(uploadFile)}
-                            className="inline-flex items-center px-2 sm:px-3 py-1 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200"
-                          >
-                            Upload
-                          </button>
-                        )}
+                      <div className="ml-4 flex-shrink-0 flex space-x-2">
                         <button
                           onClick={() => removeFile(uploadFile.id)}
-                          className="inline-flex items-center justify-center p-1 border border-transparent rounded text-red-400 hover:text-red-600"
+                          disabled={uploadFile.status === "uploading"}
+                          className="inline-flex items-center p-1 border border-transparent rounded text-red-400 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <X className="h-4 w-4" />
                         </button>
@@ -571,5 +965,17 @@ export default function UploadPage() {
         </div>
       </DashboardLayout>
     </ProtectedRoute>
+  );
+}
+
+export default function UploadPage() {
+  return (
+    <Suspense
+      fallback={
+        <LoadingSpinner variant="fullscreen" text="Loading upload page..." />
+      }
+    >
+      <UploadPageContent />
+    </Suspense>
   );
 }
