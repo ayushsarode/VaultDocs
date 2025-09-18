@@ -46,6 +46,7 @@ interface SuccessfulFile {
 }
 
 function UploadPageContent() {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const searchParams = useSearchParams();
   const currentFolderId = searchParams.get("folder");
 
@@ -328,17 +329,14 @@ function UploadPageContent() {
         );
       }, 300);
 
-      // Use multiple upload endpoint for multiple files
-      const response = await fetch(
-        "http://localhost:8000/api/files/upload-multiple",
-        {
-          method: "POST",
-          body: formData,
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      // Use environment variable for API URL
+      const response = await fetch(`${API_URL}/api/files/upload-multiple`, {
+        method: "POST",
+        body: formData,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       console.log("📤 Multiple upload response status:", response.status);
 
@@ -464,14 +462,12 @@ function UploadPageContent() {
         errorMessage.includes("Authentication")
       ) {
         alert("🔒 Authentication failed! Please login again.");
-        // Optionally redirect to login page
-        // window.location.href = '/auth/login';
       } else if (
         errorMessage.includes("Failed to fetch") ||
         errorMessage.includes("Network error")
       ) {
         alert(
-          "❌ Connection failed! Please ensure the server is running on http://localhost:8000"
+          `❌ Connection failed! Please ensure the server is running on ${API_URL}`
         );
       } else {
         alert(`❌ Upload failed: ${errorMessage}`);
@@ -518,8 +514,8 @@ function UploadPageContent() {
         );
       }, 200);
 
-      // Use single upload endpoint
-      const response = await fetch("http://localhost:8000/api/files/upload", {
+      // Use environment variable for API URL
+      const response = await fetch(`${API_URL}/api/files/upload`, {
         method: "POST",
         body: formData,
         headers: {
@@ -617,14 +613,12 @@ function UploadPageContent() {
         errorMessage.includes("Authentication")
       ) {
         alert("🔒 Authentication failed! Please login again.");
-        // Optionally redirect to login page
-        // window.location.href = '/auth/login';
       } else if (
         errorMessage.includes("Failed to fetch") ||
         errorMessage.includes("Network error")
       ) {
         alert(
-          "❌ Connection failed! Please ensure the server is running on http://localhost:8000"
+          `❌ Connection failed! Please ensure the server is running on ${API_URL}`
         );
       } else {
         alert(`❌ Upload failed: ${errorMessage}`);
