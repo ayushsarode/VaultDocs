@@ -1,7 +1,7 @@
 import axios from "axios";
 import Cookies from "js-cookie";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 // Create axios instance
 const api = axios.create({
@@ -192,8 +192,8 @@ export const fileAPI = {
 export const storageAPI = {
   getInfo: async () => {
     const response = await api.get("/api/storage");
-    // Extract storage object from the response
-    return response.data.storage || {};
+    // Return the response data directly (no longer nested under storage key)
+    return response.data;
   },
 };
 

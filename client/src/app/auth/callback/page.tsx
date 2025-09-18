@@ -15,13 +15,10 @@ function CallbackContent() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        console.log("Starting OAuth callback handling...");
 
         const token = searchParams.get("token");
         const userId = searchParams.get("user");
 
-        console.log("Token:", token ? "present" : "missing");
-        console.log("User ID:", userId ? "present" : "missing");
 
         if (!token || !userId) {
           throw new Error("Missing token or user ID in callback");
@@ -30,19 +27,15 @@ function CallbackContent() {
         // Check if user is already logged in to prevent duplicate processing
         const existingToken = Cookies.get("token");
         if (existingToken === token) {
-          console.log("User already logged in with this token, redirecting...");
           router.replace("/dashboard");
           return;
         }
 
         // Set the token first so the API calls work
         Cookies.set("token", token, { expires: 7 });
-        console.log("Token set in cookies");
 
         // Get user profile data using the API utility
-        console.log("Fetching user profile...");
         const userData = await authAPI.getProfile();
-        console.log("User profile received:", userData);
 
         // Log in the user with the token and user data
         login(token, {
@@ -53,7 +46,6 @@ function CallbackContent() {
           auth_provider: "google",
         });
 
-        console.log("User logged in, redirecting to dashboard...");
         router.replace("/dashboard");
       } catch (error: unknown) {
         console.error("Auth callback error:", error);

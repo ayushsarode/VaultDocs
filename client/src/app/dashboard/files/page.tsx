@@ -172,14 +172,10 @@ export default function FilesPage() {
     try {
       if (deleteConfirm.type === "file") {
         setDeletingFileId(deleteConfirm.id);
-        console.log("Calling fileAPI.delete for:", deleteConfirm.id);
         await fileAPI.delete(deleteConfirm.id);
-        console.log("File deleted successfully");
       } else {
         setDeletingFolderId(deleteConfirm.id);
-        console.log("Calling folderAPI.delete for:", deleteConfirm.id);
         await folderAPI.delete(deleteConfirm.id);
-        console.log("Folder deleted successfully");
       }
 
       fetchData();
@@ -228,7 +224,6 @@ export default function FilesPage() {
 
   const handleToggleFavorite = async (fileId: string) => {
     try {
-      console.log("Toggling favorite for file:", fileId);
       await fileAPI.toggleFavorite(fileId);
 
       // Update the local state to reflect the change immediately
@@ -239,8 +234,6 @@ export default function FilesPage() {
             : file
         )
       );
-
-      console.log("Favorite toggled successfully");
     } catch (error) {
       console.error("Error toggling favorite:", error);
       alert("Failed to update favorite status. Please try again.");
@@ -412,7 +405,7 @@ export default function FilesPage() {
               </div>
             </div>
 
-            <div className="flex items-center space-x-2 sm:space-x-3 overflow-x-auto pb-2 sm:pb-0">
+            <div className="flex items-center space-x-2 sm:space-x-3 overflow-x-auto pb-2 sm:pb-0 relative">
               <div className="flex items-center bg-gray-100 rounded-lg p-1 flex-shrink-0">
                 <button
                   onClick={() => setViewMode("list")}
@@ -451,79 +444,87 @@ export default function FilesPage() {
                 </button>
 
                 {showSortDropdown && (
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide border-b border-gray-100">
-                      Sort by
+                  <div
+                    className="fixed inset-0 z-50"
+                    onClick={() => setShowSortDropdown(false)}
+                  >
+                    <div
+                      className="absolute top-35 right-62 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-1 max-h-80 overflow-y-auto"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                        Sort by
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSortBy("name");
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          sortBy === "name"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Name
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSortBy("date");
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          sortBy === "date"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Date
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSortBy("size");
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          sortBy === "size"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Size
+                      </button>
+                      <hr className="my-1" />
+                      <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                        Order
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSortOrder("asc");
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          sortOrder === "asc"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Ascending
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSortOrder("desc");
+                          setShowSortDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          sortOrder === "desc"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Descending
+                      </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        setSortBy("name");
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        sortBy === "name"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Name
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSortBy("date");
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        sortBy === "date"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Date
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSortBy("size");
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        sortBy === "size"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Size
-                    </button>
-                    <hr className="my-1" />
-                    <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide border-b border-gray-100">
-                      Order
-                    </div>
-                    <button
-                      onClick={() => {
-                        setSortOrder("asc");
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        sortOrder === "asc"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Ascending
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSortOrder("desc");
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        sortOrder === "desc"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Descending
-                    </button>
                   </div>
                 )}
               </div>
@@ -546,62 +547,70 @@ export default function FilesPage() {
                 </button>
 
                 {showFilterDropdown && (
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                    <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide border-b border-gray-100">
-                      Show
+                  <div
+                    className="fixed inset-0 z-50"
+                    onClick={() => setShowFilterDropdown(false)}
+                  >
+                    <div
+                      className="absolute top-35 right-38 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-1 max-h-80 overflow-y-auto"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                        Show
+                      </div>
+                      <button
+                        onClick={() => {
+                          setFilterBy("all");
+                          setShowFilterDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          filterBy === "all"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        All items
+                      </button>
+                      <button
+                        onClick={() => {
+                          setFilterBy("files");
+                          setShowFilterDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          filterBy === "files"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Files only
+                      </button>
+                      <button
+                        onClick={() => {
+                          setFilterBy("folders");
+                          setShowFilterDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          filterBy === "folders"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Folders only
+                      </button>
+                      <button
+                        onClick={() => {
+                          setFilterBy("favorites");
+                          setShowFilterDropdown(false);
+                        }}
+                        className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
+                          filterBy === "favorites"
+                            ? "bg-blue-50 text-blue-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        Favorites only
+                      </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        setFilterBy("all");
-                        setShowFilterDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        filterBy === "all"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      All items
-                    </button>
-                    <button
-                      onClick={() => {
-                        setFilterBy("files");
-                        setShowFilterDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        filterBy === "files"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Files only
-                    </button>
-                    <button
-                      onClick={() => {
-                        setFilterBy("folders");
-                        setShowFilterDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        filterBy === "folders"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Folders only
-                    </button>
-                    <button
-                      onClick={() => {
-                        setFilterBy("favorites");
-                        setShowFilterDropdown(false);
-                      }}
-                      className={`w-full flex items-center px-3 py-2 text-sm text-left hover:bg-gray-50 transition-colors ${
-                        filterBy === "favorites"
-                          ? "bg-blue-50 text-blue-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      Favorites only
-                    </button>
                   </div>
                 )}
               </div>
@@ -788,10 +797,7 @@ export default function FilesPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            console.log(
-                              "More button clicked for file:",
-                              file.id
-                            );
+
                             setDropdownOpen(
                               dropdownOpen === file.id ? null : file.id
                             );
@@ -806,7 +812,7 @@ export default function FilesPage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                console.log("Download clicked");
+
                                 handleDownload(file.id, file.original_name);
                                 setDropdownOpen(null);
                               }}
@@ -820,7 +826,7 @@ export default function FilesPage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                console.log("Delete clicked");
+
                                 handleDeleteFile(file.id, file.original_name);
                                 setDropdownOpen(null);
                               }}
@@ -940,10 +946,7 @@ export default function FilesPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              console.log(
-                                "More button clicked for file:",
-                                file.id
-                              );
+
                               setDropdownOpen(
                                 dropdownOpen === file.id ? null : file.id
                               );
@@ -958,7 +961,7 @@ export default function FilesPage() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  console.log("Download clicked");
+
                                   handleDownload(file.id, file.original_name);
                                   setDropdownOpen(null);
                                 }}
@@ -970,7 +973,7 @@ export default function FilesPage() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  console.log("Share clicked");
+
                                   setDropdownOpen(null);
                                 }}
                                 className="w-full flex items-center px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
@@ -982,7 +985,6 @@ export default function FilesPage() {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  console.log("Delete clicked");
                                   handleDeleteFile(file.id, file.original_name);
                                   setDropdownOpen(null);
                                 }}
