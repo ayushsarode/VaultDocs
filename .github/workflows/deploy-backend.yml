@@ -15,17 +15,20 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # Authenticate with GCP using service account key
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      # Install gcloud CLI
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: galvanic-tea-464714-j5
           install_components: 'beta,cloud-run'
 
+      # Deploy to Cloud Run
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy vaultdocs-backend \
