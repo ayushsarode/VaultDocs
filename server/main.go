@@ -13,31 +13,32 @@ import (
 )
 
 func main() {
-	err := godotenv.Load()
+	if os.Getenv("GIN_MODE") != "release" {
+		err := godotenv.Load()
+		if err != nil {
+			log.Println(".env file not found, using environment variables")
+		}
+	}
 
-	if err != nil {
-		log.Println(".env file not found")
+	if os.Getenv("GIN_MODE") == "release" {
+		gin.SetMode(gin.ReleaseMode)
 	}
 
 	if err := utils.InitDB(); err != nil {
 		log.Fatalf("failed to connect to MongoDB: %v", err)
 	}
-	log.Println("Connected to MongoDB")
 
 	// init oauth google
 	utils.InitGoogleAuth()
-	log.Println("Google OAuth initialized")
 
 	// init gcs
 	if err := utils.InitGCS(); err != nil {
 		log.Fatalf("failed to initialize Google Cloud Storage: %v", err)
 	}
-	log.Println("Google Cloud Storage initialized")
 
-	httpPort := os.Getenv("PORT")
-	if httpPort == "" {
-		httpPort = "8000"
-		log.Println("PORT not set, defaulting to 8000")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
 	route := gin.Default()
@@ -46,13 +47,20 @@ func main() {
 	route.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		// Allow multiple frontend URLs for different environments
-		allowedOrigins := []string{
-			"http://localhost:3002", // Default Next.js dev server
-			"http://localhost:3001", // Alternative port
-			"http://127.0.0.1:3003", // Alternative localhost format
-		}
+		var allowedOrigins []string
 
+		if gin.Mode() == gin.ReleaseMode {
+			allowedOrigins = []string{
+				"https://vault-docs-ruddy.vercel.app",
+			}
+		} else {
+			// Development origins
+			allowedOrigins = []string{
+				"http://localhost:3002",
+				"http://localhost:3001",
+				"http://127.0.0.1:3003",
+			}
+		}
 		// Check if origin is allowed
 		allowed := false
 		for _, allowedOrigin := range allowedOrigins {
@@ -70,7 +78,9 @@ func main() {
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		c.Header("Access-Control-Allow-Credentials", "true")
 
-		log.Printf("CORS middleware: %s %s", c.Request.Method, c.Request.URL.Path)
+		if gin.Mode() != gin.ReleaseMode {
+
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -82,8 +92,17 @@ func main() {
 
 	route.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "pong",
+			"message": "ponggg",
 		})
+	})
+
+	route.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "healthy",
+			"service": "vaultdocs-backend",
+			"mode":    gin.Mode(),
+		})
+
 	})
 
 	route.POST("/register", handlers.Register)
@@ -99,7 +118,7 @@ func main() {
 
 	// Add debugging middleware
 	protected.Use(func(c *gin.Context) {
-		log.Printf("Protected route hit: %s %s", c.Request.Method, c.Request.URL.Path)
+
 		c.Next()
 	})
 
@@ -124,9 +143,6 @@ func main() {
 			c.JSON(http.StatusOK, gin.H{"message": "test endpoint works"})
 		})
 
-		log.Println("Registered route: GET /api/files/favorites")
-		log.Println("Registered route: POST /api/files/:id/favorite")
-
 		// Storage info
 		protected.GET("/storage", handlers.GetStorageInfo)
 
@@ -134,9 +150,9 @@ func main() {
 		protected.GET("/profile", handlers.GetProfile)
 		protected.DELETE("/profile", handlers.DeleteProfile)
 	}
+	log.Printf("Starting server on port %s", port)
 
-	log.Printf("Starting server on port %s", httpPort)
-	if err := route.Run(":" + httpPort); err != nil {
+	if err := http.ListenAndServe(":"+port, route); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

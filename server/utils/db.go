@@ -46,7 +46,6 @@ func InitDB() error {
 		return err
 	}
 
-	log.Println("Successfully connected to MongoDB Atlas")
 	return nil
 }
 
@@ -55,7 +54,6 @@ func GetCollection(name string) *mongo.Collection {
 }
 
 func Err(msg string) error {
-	log.Println(msg)
 	return &customErr{msg}
 }
 

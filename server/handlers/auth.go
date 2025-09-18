@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+
 	"github.com/ayushsarode/VaultDocs/models"
 	"github.com/ayushsarode/VaultDocs/utils"
 	"github.com/gin-gonic/gin"
@@ -16,8 +17,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"golang.org/x/crypto/bcrypt"
-)         
-          
+)
+
 func Register(c *gin.Context) {
 	var user models.User
 
@@ -104,21 +105,19 @@ func GoogleLogin(c *gin.Context) {
 }
 
 func GoogleCallback(c *gin.Context) {
-	log.Println("GoogleCallback called")
 
 	// Verify state parameter
 	state := c.Query("state")
 	storedState, err := c.Cookie("oauth_state")
-	log.Printf("State: %s, StoredState: %s", state, storedState)
 
 	if err != nil {
-		log.Printf("Failed to get stored state cookie: %v", err)
+
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing state cookie"})
 		return
 	}
 
 	if state != storedState {
-		log.Printf("State verification failed: received '%s', expected '%s'", state, storedState)
+
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter"})
 		return
 	}
@@ -145,12 +144,9 @@ func GoogleCallback(c *gin.Context) {
 	// Get user info from Google
 	googleUser, err := utils.GetGoogleUserInfo(token)
 	if err != nil {
-		log.Printf("Failed to get Google user info: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user info from Google"})
 		return
 	}
-
-	log.Printf("Google user info: %+v", googleUser)
 
 	// Check if user exists in database
 	collection := utils.GetCollection("users")
@@ -191,7 +187,6 @@ func GoogleCallback(c *gin.Context) {
 				return
 			}
 		} else {
-			log.Printf("Successfully created user: %s", newUser.Email)
 			existingUser = newUser
 		}
 	} else {
@@ -235,7 +230,6 @@ func GoogleCallback(c *gin.Context) {
 		jwtToken,
 		existingUser.ID.Hex())
 
-	log.Printf("Redirecting to: %s", redirectURL)
 	c.Redirect(http.StatusTemporaryRedirect, redirectURL)
 }
 

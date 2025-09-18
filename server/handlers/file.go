@@ -6,7 +6,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -470,7 +469,8 @@ func updateUserStorageAsync(ctx context.Context, userID primitive.ObjectID, size
 	)
 
 	if err != nil {
-		fmt.Printf("Error updating user storage: %v\n", err)
+		// Silent error handling - could log to proper logger in production
+		_ = err
 	}
 }
 
@@ -580,8 +580,8 @@ func DownloadFile(c *gin.Context) {
 	// Stream the file directly to the client
 	_, err = io.Copy(c.Writer, reader)
 	if err != nil {
-		// Log error but don't send JSON response as headers are already sent
-		fmt.Printf("Error streaming file: %v\n", err)
+		// Silent error handling - headers already sent
+		_ = err
 	}
 }
 
@@ -625,8 +625,8 @@ func DeleteFile(c *gin.Context) {
 	// Delete file from Google Cloud Storage
 	err = utils.DeleteFromGCS(c, file.Path)
 	if err != nil {
-		// Log error but don't fail the request since DB record is already deleted
-		fmt.Printf("Warning: Could not delete file from GCS: %v\n", err)
+		// Silent error handling - DB record is already deleted
+		_ = err
 	}
 
 	// Update user storage stats
@@ -644,7 +644,8 @@ func GetStorageInfo(c *gin.Context) {
 	// Recalculate storage from actual files to ensure accuracy
 	err := recalculateUserStorage(c, userID)
 	if err != nil {
-		log.Printf("Warning: Could not recalculate storage for user %s: %v", userIDString, err)
+		// Continue with cached data if recalculation fails
+		_ = err
 	}
 
 	storage, err := getUserStorage(c, userID)
@@ -653,9 +654,28 @@ func GetStorageInfo(c *gin.Context) {
 		return
 	}
 
+	// Calculate usage percentage safely to avoid +Inf
+	var usagePercentage float64 = 0
+	if storage.MaxSpace > 0 {
+		usagePercentage = float64(storage.UsedSpace) / float64(storage.MaxSpace) * 100
+		// Ensure the percentage is not infinite or NaN
+		if usagePercentage > 100 {
+			usagePercentage = 100
+		}
+		if usagePercentage < 0 || usagePercentage != usagePercentage { // NaN check
+			usagePercentage = 0
+		}
+	}
+
+	// Return storage data directly (not nested under "storage" key)
 	c.JSON(http.StatusOK, gin.H{
-		"storage":          storage,
-		"usage_percentage": float64(storage.UsedSpace) / float64(storage.MaxSpace) * 100,
+		"user_id":          storage.UserID,
+		"used_space":       storage.UsedSpace,
+		"max_space":        storage.MaxSpace,
+		"file_count":       storage.FileCount,
+		"folder_count":     storage.FolderCount,
+		"updated_at":       storage.UpdatedAt,
+		"usage_percentage": usagePercentage,
 	})
 }
 
@@ -738,8 +758,7 @@ func recalculateUserStorage(c *gin.Context, userID primitive.ObjectID) error {
 		return fmt.Errorf("could not update storage record: %v", err)
 	}
 
-	log.Printf("Recalculated storage for user %s - Size: %d bytes, Files: %d, Folders: %d",
-		userID.Hex(), result.TotalSize, result.FileCount, int(folderCount))
+	// Storage recalculated successfully
 
 	return nil
 }
@@ -747,18 +766,15 @@ func recalculateUserStorage(c *gin.Context, userID primitive.ObjectID) error {
 // ToggleFavorite toggles the favorite status of a file
 func ToggleFavorite(c *gin.Context) {
 	fileID := c.Param("id")
-	fmt.Printf("ToggleFavorite called with fileID: %s\n", fileID)
 
 	fileObjID, err := primitive.ObjectIDFromHex(fileID)
 	if err != nil {
-		fmt.Printf("Invalid file ID error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file ID"})
 		return
 	}
 
 	userIDInterface, exists := c.Get("userID")
 	if !exists {
-		fmt.Printf("User ID not found in context\n")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
 		return
 	}
@@ -766,7 +782,6 @@ func ToggleFavorite(c *gin.Context) {
 	userIDString := userIDInterface.(string)
 	userID, err := primitive.ObjectIDFromHex(userIDString)
 	if err != nil {
-		fmt.Printf("Invalid user ID error: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
@@ -780,16 +795,13 @@ func ToggleFavorite(c *gin.Context) {
 	}).Decode(&file)
 
 	if err != nil {
-		fmt.Printf("File not found error: %v\n", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
 		return
 	}
 
-	fmt.Printf("Current favorite status: %v\n", file.IsFavorite)
-
 	// Toggle favorite status
 	newFavoriteStatus := !file.IsFavorite
-	updateResult, err := collection.UpdateOne(c, bson.M{
+	_, err = collection.UpdateOne(c, bson.M{
 		"_id":     fileObjID,
 		"user_id": userID,
 	}, bson.M{
@@ -800,12 +812,9 @@ func ToggleFavorite(c *gin.Context) {
 	})
 
 	if err != nil {
-		fmt.Printf("Update error: %v\n", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Could not update file: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update file"})
 		return
 	}
-
-	fmt.Printf("Update result - matched: %d, modified: %d\n", updateResult.MatchedCount, updateResult.ModifiedCount)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "File favorite status updated",
