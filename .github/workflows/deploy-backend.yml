@@ -1,31 +1,35 @@
-name: Deploy to Cloud Run
+name: Deploy VaultDocs Server to Cloud Run
 
 on:
   push:
     branches:
-      - main  # or your deployment branch
-  workflow_dispatch:
+      - main  # deploy only on main branch
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v2
-      with:
-        project_id: galvanic-tea-464714-j5
-        service_account_key: ${{ secrets.GCP_SA_KEY }}
-        export_default_credentials: true
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: galvanic-tea-464714-j5
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
 
-    - name: Build and deploy to Cloud Run
-      run: |
-        gcloud config set run/region us-central1
-        gcloud builds submit --tag gcr.io/galvanic-tea-464714-j5/vaultdocs-backend .
-        gcloud run deploy vaultdocs-backend \
-          --image gcr.io/galvanic-tea-464714-j5/vaultdocs-backend \
-          --platform managed \
-          --allow-unauthenticated
+      - name: Build server Docker image
+        run: |
+          gcloud config set run/region us-central1
+          # Build only the server folder
+          gcloud builds submit ./server --tag gcr.io/galvanic-tea-464714-j5/vaultdocs-backend
+
+      - name: Deploy server to Cloud Run
+        run: |
+          gcloud run deploy vaultdocs-backend \
+            --image gcr.io/galvanic-tea-464714-j5/vaultdocs-backend \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars DB_URL=${{ secrets.DB_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }},GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
