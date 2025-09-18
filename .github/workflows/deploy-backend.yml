@@ -32,7 +32,7 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy vaultdocs-backend \
-            --source ./backend \
+            --source ./server \
             --platform managed \
             --region us-central1 \
             --allow-unauthenticated \
@@ -43,8 +43,8 @@ jobs:
             --max-instances 10 \
             --timeout 300 \
             --set-env-vars="GIN_MODE=release" \
-            --set-env-vars="MONGO_URI=${{ secrets.MONGO_URI }}" \
-            --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
-            --set-env-vars="GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" \
-            --set-env-vars="GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
-            --set-env-vars="GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}"
+           --set-env-vars="MONGO_URI=${{ secrets.MONGO_URI }}" \
+           --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
+           --set-env-vars="GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" \
+           --set-env-vars="GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}" \
+           --set-env-vars="GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}"
