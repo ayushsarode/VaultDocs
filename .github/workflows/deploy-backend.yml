@@ -10,22 +10,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # 2. Authenticate to Google Cloud using service account
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 3. Install Cloud SDK
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: galvanic-tea-464714-j5
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
           export_default_credentials: true
 
+      # 4. Verify authentication (optional but useful for debugging)
+      - name: Verify gcloud auth
+        run: |
+          gcloud auth list
+          gcloud config list
+
+      # 5. Build server Docker image (only server folder)
       - name: Build server Docker image
         run: |
           gcloud config set run/region us-central1
-          # Build only the server folder
-          gcloud builds submit ./server --tag gcr.io/galvanic-tea-464714-j5/vaultdocs-backend
+          gcloud builds submit ./server \
+            --tag gcr.io/galvanic-tea-464714-j5/vaultdocs-backend
 
+      # 6. Deploy server to Cloud Run with environment variables
       - name: Deploy server to Cloud Run
         run: |
           gcloud run deploy vaultdocs-backend \
