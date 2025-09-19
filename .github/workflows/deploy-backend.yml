@@ -26,62 +26,27 @@ jobs:
           project_id: galvanic-tea-464714-j5
           export_default_credentials: true
 
-      # 4. Verify authentication
-      - name: Verify gcloud auth
-        run: |
-          gcloud auth list
-          gcloud config list
-
-      # 5. Build server Docker image (Fixed - no log streaming)
-      - name: Build server Docker image
+      # 4. Configure Docker for Google Container Registry
+      - name: Configure Docker for GCR
         run: |
           gcloud config set run/region us-central1
-          
-          echo "🚀 Submitting build to Cloud Build..."
-          
-          # Submit build without trying to stream logs
-          BUILD_ID=$(gcloud builds submit ./server \
-            --tag gcr.io/galvanic-tea-464714-j5/vaultdocs-backend \
-            --format="value(id)" \
-            --no-stream)
-          
-          echo "📋 Build submitted with ID: $BUILD_ID"
-          echo "🔗 View logs at: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
-          
-          # Wait for build completion with status checking
-          echo "⏳ Waiting for build to complete..."
-          
-          MAX_ATTEMPTS=60  # 10 minutes max (60 * 10 seconds)
-          ATTEMPT=0
-          
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            BUILD_STATUS=$(gcloud builds describe $BUILD_ID --format="value(status)" 2>/dev/null || echo "UNKNOWN")
-            echo "📊 Build status: $BUILD_STATUS (attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS)"
-            
-            case $BUILD_STATUS in
-              "SUCCESS")
-                echo "✅ Build completed successfully!"
-                echo "🐳 Docker image: gcr.io/galvanic-tea-464714-j5/vaultdocs-backend"
-                exit 0
-                ;;
-              "FAILURE"|"TIMEOUT"|"CANCELLED")
-                echo "❌ Build failed with status: $BUILD_STATUS"
-                echo "🔍 Check build logs at: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
-                exit 1
-                ;;
-              "WORKING"|"QUEUED"|"UNKNOWN")
-                echo "🔄 Build in progress..."
-                ;;
-            esac
-            
-            sleep 10
-            ATTEMPT=$((ATTEMPT + 1))
-          done
-          
-          echo "⏰ Build timed out after 10 minutes"
-          exit 1
+          gcloud auth configure-docker gcr.io
+          echo "✅ Docker configured for GCR"
 
-      # 6. Deploy server to Cloud Run with environment variables
+      # 5. Build and push Docker image
+      - name: Build and push Docker image
+        run: |
+          cd ./server
+          
+          echo "🐳 Building Docker image..."
+          docker build -t gcr.io/galvanic-tea-464714-j5/vaultdocs-backend .
+          
+          echo "📤 Pushing image to Google Container Registry..."
+          docker push gcr.io/galvanic-tea-464714-j5/vaultdocs-backend
+          
+          echo "✅ Image built and pushed successfully!"
+
+      # 6. Deploy to Cloud Run
       - name: Deploy server to Cloud Run
         run: |
           echo "🚀 Deploying to Cloud Run..."
@@ -109,8 +74,5 @@ jobs:
             --format="value(status.url)")
           
           echo "🌐 Your service is available at: $SERVICE_URL"
-          
-          # Test the health endpoint
-          echo "🔍 Testing health endpoint..."
-          sleep 10
-          curl -f "$SERVICE_URL/health" && echo "✅ Health check passed!" || echo "⚠️ Health check failed, but service might still be starting"
+          echo "🔍 Health check: $SERVICE_URL/health"
+          echo "🧪 Test endpoint: $SERVICE_URL/ping"
