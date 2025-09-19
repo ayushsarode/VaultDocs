@@ -2,6 +2,10 @@
 
 DriftBox is a cloud storage API that allows users to create folders, upload files (up to 50MB), and manage their storage (2GB limit per user).
 
+## Preview
+<img width="1845" height="962" alt="image" src="https://github.com/user-attachments/assets/2319e9f2-7ce4-4753-a217-5551362f1708" />
+
+
 ## Features
 
 - User authentication (email/password + Google OAuth)
