@@ -80,7 +80,7 @@ export default function DashboardPage() {
       const timeoutId = setTimeout(() => {
         setError("Loading timeout - using default values");
         setLoading(false);
-      }, 10000);
+      }, 20000);
 
       try {
         setError(null);

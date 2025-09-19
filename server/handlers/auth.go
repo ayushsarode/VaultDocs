@@ -52,7 +52,6 @@ func Register(c *gin.Context) {
 func Login(c *gin.Context) {
 	var user models.User
 
-	// Bind incoming JSON (email & password)
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -60,7 +59,6 @@ func Login(c *gin.Context) {
 
 	var dbUser models.User
 
-	// Fetch user by email
 	collection := utils.GetCollection("users")
 	err := collection.FindOne(c, gin.H{"email": user.Email}).Decode(&dbUser)
 
@@ -69,20 +67,17 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Compare passwords
 	if err := bcrypt.CompareHashAndPassword([]byte(dbUser.Password), []byte(user.Password)); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
-	// Generate JWT token
 	token, err := utils.GenerateToken(dbUser.ID.Hex())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate token"})
 		return
 	}
 
-	// Respond with token and user data
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"user": gin.H{
@@ -94,10 +89,8 @@ func Login(c *gin.Context) {
 }
 
 func GoogleLogin(c *gin.Context) {
-	// Generate random state string
 	state := generateRandomState()
 
-	// Store state in session or cache (simplified here)
 	c.SetCookie("oauth_state", state, 300, "/", "", false, true)
 
 	url := utils.GoogleOAuthConfig.AuthCodeURL(state)
@@ -106,7 +99,6 @@ func GoogleLogin(c *gin.Context) {
 
 func GoogleCallback(c *gin.Context) {
 
-	// Verify state parameter
 	state := c.Query("state")
 	storedState, err := c.Cookie("oauth_state")
 
@@ -122,10 +114,8 @@ func GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	// Clear the state cookie
 	c.SetCookie("oauth_state", "", -1, "/", "", false, true)
 
-	// Exchange code for token
 	code := c.Query("code")
 	if code == "" {
 		log.Printf("No authorization code received")
@@ -141,21 +131,18 @@ func GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	// Get user info from Google
 	googleUser, err := utils.GetGoogleUserInfo(token)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user info from Google"})
 		return
 	}
 
-	// Check if user exists in database
 	collection := utils.GetCollection("users")
 	var existingUser models.User
 
 	err = collection.FindOne(c, bson.M{"email": googleUser.Email}).Decode(&existingUser)
 
 	if err != nil {
-		// User doesn't exist, create new user
 		log.Printf("User not found, creating new user: %s", googleUser.Email)
 		newUser := models.User{
 			ID:           primitive.NewObjectID(),
@@ -172,10 +159,8 @@ func GoogleCallback(c *gin.Context) {
 		_, err = collection.InsertOne(c, newUser)
 		if err != nil {
 			log.Printf("Failed to create user: %v", err)
-			// Check if this is a duplicate key error (user already exists)
 			if mongo.IsDuplicateKeyError(err) || strings.Contains(err.Error(), "duplicate key") {
 				log.Printf("User already exists, trying to find existing user")
-				// Try to find the existing user
 				err = collection.FindOne(c, bson.M{"email": googleUser.Email}).Decode(&existingUser)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "User exists but could not retrieve"})
@@ -191,7 +176,6 @@ func GoogleCallback(c *gin.Context) {
 		}
 	} else {
 		log.Printf("User already exists: %s", existingUser.Email)
-		// User exists, update Google ID if not set
 		if existingUser.GoogleID == "" {
 			log.Printf("Updating existing user with Google ID")
 			update := bson.M{
@@ -205,7 +189,6 @@ func GoogleCallback(c *gin.Context) {
 			if err != nil {
 				log.Printf("Failed to update user: %v", err)
 			} else {
-				// Update the local existingUser object
 				existingUser.GoogleID = googleUser.ID
 				existingUser.Picture = googleUser.Picture
 				existingUser.AuthProvider = "google"
@@ -213,17 +196,15 @@ func GoogleCallback(c *gin.Context) {
 		}
 	}
 
-	// Generate JWT token
 	jwtToken, err := utils.GenerateToken(existingUser.ID.Hex())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate token"})
 		return
 	}
 
-	// Redirect to frontend with token instead of JSON response
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3001" // Default fallback
+		frontendURL = "http://localhost:3001"
 	}
 	redirectURL := fmt.Sprintf("%s/auth/callback?token=%s&user=%s",
 		frontendURL,
@@ -284,7 +265,6 @@ func DeleteProfile(c *gin.Context) {
 		return
 	}
 
-	// Delete all user files from GCS first
 	fileCollection := utils.GetCollection("files")
 	filesCursor, err := fileCollection.Find(c, bson.M{"user_id": userID})
 	if err == nil {
@@ -297,14 +277,12 @@ func DeleteProfile(c *gin.Context) {
 		}
 	}
 
-	// Delete all user files from database
 	_, err = fileCollection.DeleteMany(c, bson.M{"user_id": userID})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete user files"})
 		return
 	}
 
-	// Delete all user folders
 	folderCollection := utils.GetCollection("folders")
 	_, err = folderCollection.DeleteMany(c, bson.M{"user_id": userID})
 	if err != nil {
@@ -312,7 +290,6 @@ func DeleteProfile(c *gin.Context) {
 		return
 	}
 
-	// Delete user storage record
 	storageCollection := utils.GetCollection("user_storage")
 	_, err = storageCollection.DeleteMany(c, bson.M{"user_id": userID})
 	if err != nil {
@@ -320,7 +297,6 @@ func DeleteProfile(c *gin.Context) {
 		return
 	}
 
-	// Finally delete the user
 	userCollection := utils.GetCollection("users")
 	_, err = userCollection.DeleteOne(c, bson.M{"_id": userID})
 	if err != nil {

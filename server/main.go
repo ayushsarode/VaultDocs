@@ -28,10 +28,8 @@ func main() {
 		log.Fatalf("failed to connect to MongoDB: %v", err)
 	}
 
-	// init oauth google
 	utils.InitGoogleAuth()
 
-	// init gcs
 	if err := utils.InitGCS(); err != nil {
 		log.Fatalf("failed to initialize Google Cloud Storage: %v", err)
 	}
@@ -43,7 +41,6 @@ func main() {
 
 	route := gin.Default()
 
-	//cors - improved configuration
 	route.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
@@ -54,14 +51,12 @@ func main() {
 				"https://vault-docs-ruddy.vercel.app",
 			}
 		} else {
-			// Development origins
 			allowedOrigins = []string{
 				"http://localhost:3002",
 				"http://localhost:3001",
 				"http://127.0.0.1:3003",
 			}
 		}
-		// Check if origin is allowed
 		allowed := false
 		for _, allowedOrigin := range allowedOrigins {
 			if origin == allowedOrigin {
@@ -108,28 +103,23 @@ func main() {
 	route.POST("/register", handlers.Register)
 	route.POST("/login", handlers.Login)
 
-	// google auth
 	route.GET("/auth/google", handlers.GoogleLogin)
 	route.GET("/auth/google/callback", handlers.GoogleCallback)
 
-	// (require authentication)
 	protected := route.Group("/api")
 	protected.Use(middleware.Authmiddleware())
 
-	// Add debugging middleware
 	protected.Use(func(c *gin.Context) {
 
 		c.Next()
 	})
 
 	{
-		// Folder management
 		protected.POST("/folders", handlers.CreateFolder)
 		protected.GET("/folders", handlers.GetFolders)
 		protected.GET("/folders/all", handlers.GetAllFolders)
 		protected.DELETE("/folders/:id", handlers.DeleteFolder)
 
-		// File management
 		protected.POST("/files/upload", handlers.UploadFile)
 		protected.POST("/files/upload-multiple", handlers.UploadMultipleFiles)
 		protected.GET("/files", handlers.GetFiles)
@@ -138,15 +128,12 @@ func main() {
 		protected.GET("/files/:id/download", handlers.DownloadFile)
 		protected.DELETE("/files/:id", handlers.DeleteFile)
 
-		// Test endpoint
 		protected.GET("/files/test", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"message": "test endpoint works"})
 		})
 
-		// Storage info
 		protected.GET("/storage", handlers.GetStorageInfo)
 
-		// Profile management
 		protected.GET("/profile", handlers.GetProfile)
 		protected.DELETE("/profile", handlers.DeleteProfile)
 	}

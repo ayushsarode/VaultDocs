@@ -3,37 +3,36 @@ name: Deploy VaultDocs Server to Cloud Run
 on:
   push:
     branches:
-      - main # deploy only on main branch
+      - main 
+    paths:
+      - 'server/**'
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      # 1. Checkout repo
+
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # 2. Authenticate to Google Cloud using service account
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      # 3. Install Cloud SDK
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: galvanic-tea-464714-j5
           export_default_credentials: true
 
-      # 4. Configure Docker for Google Container Registry
       - name: Configure Docker for GCR
         run: |
           gcloud config set run/region us-central1
           gcloud auth configure-docker gcr.io
           echo "✅ Docker configured for GCR"
 
-      # 5. Build and push Docker image
       - name: Build and push Docker image
         run: |
           cd ./server
@@ -46,7 +45,6 @@ jobs:
           
           echo "✅ Image built and pushed successfully!"
 
-      # 6. Deploy to Cloud Run
       - name: Deploy server to Cloud Run
         run: |
           echo "🚀 Deploying to Cloud Run..."

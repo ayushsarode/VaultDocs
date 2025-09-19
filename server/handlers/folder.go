@@ -11,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// CreateFolder creates a new folder for the authenticated user
 func CreateFolder(c *gin.Context) {
 	var folderRequest struct {
 		Name     string `json:"name" binding:"required"`
@@ -23,7 +22,6 @@ func CreateFolder(c *gin.Context) {
 		return
 	}
 
-	// Get user ID from middleware
 	userIDInterface, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
@@ -45,7 +43,6 @@ func CreateFolder(c *gin.Context) {
 		UpdatedAt: time.Now(),
 	}
 
-	// handling parent ID
 	if folderRequest.ParentID != "" {
 		parentID, err := primitive.ObjectIDFromHex(folderRequest.ParentID)
 		if err != nil {
@@ -53,7 +50,6 @@ func CreateFolder(c *gin.Context) {
 			return
 		}
 
-		// Verify parent folder exists and belongs to user
 		collection := utils.GetCollection("folders")
 		var parentFolder models.Folder
 		err = collection.FindOne(c, bson.M{
@@ -72,7 +68,6 @@ func CreateFolder(c *gin.Context) {
 		folder.Path = "/" + folderRequest.Name
 	}
 
-	// Check if folder with same name exists in same location
 	collection := utils.GetCollection("folders")
 	var existingFolder models.Folder
 	err = collection.FindOne(c, bson.M{
@@ -86,14 +81,12 @@ func CreateFolder(c *gin.Context) {
 		return
 	}
 
-	// Create folder
 	_, err = collection.InsertOne(c, folder)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not create folder"})
 		return
 	}
 
-	// Update user storage stats
 	updateUserStorage(c, userID, 0, 1, 0)
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -102,7 +95,6 @@ func CreateFolder(c *gin.Context) {
 	})
 }
 
-// GetFolders retrieves folders for the authenticated user
 func GetFolders(c *gin.Context) {
 	userIDInterface, _ := c.Get("userID")
 	userIDString := userIDInterface.(string)
@@ -139,7 +131,6 @@ func GetFolders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"folders": folders})
 }
 
-// GetAllFolders returns all folders for the authenticated user (for hierarchy building)
 func GetAllFolders(c *gin.Context) {
 	userIDInterface, _ := c.Get("userID")
 	userIDString := userIDInterface.(string)
@@ -164,7 +155,6 @@ func GetAllFolders(c *gin.Context) {
 	c.JSON(http.StatusOK, folders)
 }
 
-// DeleteFolder deletes a folder and all its contents
 func DeleteFolder(c *gin.Context) {
 	folderID := c.Param("id")
 	folderObjID, err := primitive.ObjectIDFromHex(folderID)
@@ -177,10 +167,8 @@ func DeleteFolder(c *gin.Context) {
 	userIDString := userIDInterface.(string)
 	userID, _ := primitive.ObjectIDFromHex(userIDString)
 
-	// get folders
 	collection := utils.GetCollection("folders")
 
-	// Verify folder exists and belongs to user
 	var folder models.Folder
 	err = collection.FindOne(c, bson.M{
 		"_id":     folderObjID,
@@ -192,7 +180,6 @@ func DeleteFolder(c *gin.Context) {
 		return
 	}
 
-	// Delete folder
 	_, err = collection.DeleteOne(c, bson.M{
 		"_id":     folderObjID,
 		"user_id": userID,
@@ -203,33 +190,28 @@ func DeleteFolder(c *gin.Context) {
 		return
 	}
 
-	// Update user storage stats
 	updateUserStorage(c, userID, 0, -1, 0)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Folder deleted successfully"})
 }
 
-// Helper function to update user storage statistics
 func updateUserStorage(c *gin.Context, userID primitive.ObjectID, sizeChange int64, folderChange int, fileChange int) {
 	collection := utils.GetCollection("user_storage")
 
-	// Try to find existing storage record
 	var storage models.UserStorage
 	err := collection.FindOne(c, bson.M{"user_id": userID}).Decode(&storage)
 
 	if err != nil {
-		// Create new storage record
 		storage = models.UserStorage{
 			UserID:      userID,
 			UsedSpace:   sizeChange,
-			MaxSpace:    2147483648, // 2GB in bytes
+			MaxSpace:    2147483648,
 			FileCount:   fileChange,
 			FolderCount: folderChange,
 			UpdatedAt:   time.Now(),
 		}
 		collection.InsertOne(c, storage)
 	} else {
-		// Update existing record
 		update := bson.M{
 			"$inc": bson.M{
 				"used_space":   sizeChange,
