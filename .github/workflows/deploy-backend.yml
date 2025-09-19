@@ -3,12 +3,11 @@ name: Deploy VaultDocs Server to Cloud Run
 on:
   push:
     branches:
-      - main  # deploy only on main branch
+      - main # deploy only on main branch
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       # 1. Checkout repo
       - name: Checkout repository
@@ -27,24 +26,43 @@ jobs:
           project_id: galvanic-tea-464714-j5
           export_default_credentials: true
 
-      # 4. Verify authentication (optional but useful for debugging)
-      - name: Verify gcloud auth
-        run: |
-          gcloud auth list
-          gcloud config list
-
-      # 5. Build server Docker image (only server folder)
-      - name: Build server Docker image
+      # 4. Configure Docker for Google Container Registry
+      - name: Configure Docker for GCR
         run: |
           gcloud config set run/region us-central1
-          gcloud builds submit ./server \
-            --tag gcr.io/galvanic-tea-464714-j5/vaultdocs-backend
+          gcloud auth configure-docker gcr.io
+          echo "✅ Docker configured for GCR"
 
-      # 6. Deploy server to Cloud Run with environment variables
-      - name: Deploy server to Cloud Run
+      # 5. Build and push Docker image locally
+      - name: Build and push Docker image
         run: |
+          cd ./server
+          
+          echo "🐳 Building Docker image..."
+          docker build -t gcr.io/galvanic-tea-464714-j5/vaultdocs-backend .
+          
+          echo "📤 Pushing image to Google Container Registry..."
+          docker push gcr.io/galvanic-tea-464714-j5/vaultdocs-backend
+          
+          echo "✅ Image built and pushed successfully!"
+
+      # 6. Deploy to Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          echo "🚀 Deploying to Cloud Run..."
+          
           gcloud run deploy vaultdocs-backend \
             --image gcr.io/galvanic-tea-464714-j5/vaultdocs-backend \
             --platform managed \
+            --region us-central1 \
             --allow-unauthenticated \
-            --set-env-vars DB_URL=${{ secrets.DB_URL }},JWT_SECRET=${{ secrets.JWT_SECRET }},GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }},GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+            --set-env-vars DB_URL="${{ secrets.DB_URL }}",JWT_SECRET="${{ secrets.JWT_SECRET }}",GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}",GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          
+          echo "✅ Deployment completed!"
+          
+          # Get the service URL
+          SERVICE_URL=$(gcloud run services describe vaultdocs-backend \
+            --region us-central1 \
+            --format="value(status.url)")
+          
+          echo "🌐 Your service is available at: $SERVICE_URL"
