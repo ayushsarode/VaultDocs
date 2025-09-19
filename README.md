@@ -22,5 +22,5 @@ DriftBox is a cloud storage API that allows users to create folders, upload file
 - `files` - File metadata
 - `user_storage` - Storage usage tracking
 
+![visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fayushsarode%2FVaultDocs&label=visitors&countColor=%2337d67a&style=for-the-badge&labelStyle=upper)
 
-<img src="https://api.visitVaultDocsadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fayushsarode%2FVaultDocs&label=visitors&countColor=%2337d67a&style=for-the-badge&labelStyle=upper" />
